@@ -17,13 +17,143 @@ using cv::Mat;
 using cv::Scalar;
 using cv::Point;
 using cv::Rect;
+using cv::Vec3b;
+
+const int patchRadius = 2;
+
+vector<vector<Rect>> RandomPatchesForEachLabel(Mat image, Mat imageLabels)
+{
+    // Defining some usful constants,
+    // finding the minimum and maximum values of the labeling.
+
+    const int   imageRows = image.rows,
+                imageCols = image.cols;
+    double      maxLabel,
+                minLabel;
+
+    minMaxLoc(imageLabels, &minLabel, &maxLabel);
+
+
+    ////
+    // Step 2: Choose several random pixels for each fregment
+    ////
+
+    // First, we calculate how many pixels each label has.
+    // We do this to know how many repesentatives we should pick for each label.
+
+    // axis shceme for the image:
+    // -y
+    // ^
+    // |
+    // |
+    // |
+    // ------> x
+
+    vector<vector<Point>> pixelsLabeled(maxLabel + 1);
+
+    for(int i = 0; i < imageRows; i++)
+    {
+        for(int j = 0; j < imageCols; j++)
+        {
+            // cout << i << " " << j <<  " " << labeledImage.at<int>(i , j) << endl;
+            pixelsLabeled[imageLabels.at<int>(i , j)].push_back(Point(j, i));
+            // The points coordinates are reversed to maintain our axis.
+        }
+    }
+
+    // cout << minLabel << " " << maxLabel << endl;
+    // cout << pixelsLabeled.size() << endl;
+
+    // Choose sqrt(pointsLabeldWith(i)) points randomally
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    vector<vector<Point>> patchRepresentatives(maxLabel + 1);
+
+    for(int i = minLabel; i < maxLabel + 1; i++)
+    {
+        int currentSize = pixelsLabeled[i].size();
+        int toChoose = round(sqrt(currentSize)) / 2;
+        std::uniform_int_distribution<> dis(0, currentSize - 1);
+
+        for(int j = 0; j < toChoose; j++)
+        {
+            patchRepresentatives[i].push_back( pixelsLabeled[i][dis(gen)] );
+        }
+    }
+
+    ////
+    // Step 3: Determine patches, search for closets patch in the example image.
+    ////
+
+    // We have to maintain the same size for all patches,
+    // therefore, if one patch exceeds the image limits,
+    // we will just ignore it.
+
+    // Rect is defined by (x, y) width and height
+    // (x,y) ------
+    // |
+    // |
+    // |
+    // |
+    // |
+
+    int sideLength = 2 * patchRadius + 1;
+    vector<vector<Rect>> patches(maxLabel + 1);
+
+    for(int i = minLabel; i < maxLabel + 1; i++)
+    {
+        for(Point p : patchRepresentatives[i])
+        {
+            if( p.x - patchRadius >= 0
+            &&  p.y - patchRadius >= 0
+            &&  p.x + patchRadius < imageCols
+            &&  p.y + patchRadius < imageRows)
+            {
+                patches[i].push_back(Rect(p.x - patchRadius, p.y - patchRadius, sideLength, sideLength));
+            }
+        }
+    }
+
+    return patches;
+}
+
+Mat VisualizePatches(Mat image, vector<vector<Rect>> patches)
+{
+    int sideLength = 2 * patchRadius + 1;
+    Mat vizPatch = Mat::zeros(cv::Size(image.cols, image.rows), CV_8UC3);
+
+    cout << "hello" << endl;
+
+    for(int i = 0; i < patches.size(); i++)
+    {
+        for(Rect rec : patches[i])
+        {
+            for(int i = rec.x; i < rec.x + sideLength; i++)
+            {
+                for(int j = rec.y; j < rec.y + sideLength; j++)
+                {
+                    vizPatch.at<cv::Vec3b>(j,i) = image.at<cv::Vec3b>(j,i);
+                }
+            }
+        }
+    }
+
+    return vizPatch;
+}
+
+
 
 int main()
 {
+    Mat trainImage = cv::imread("../images/liberty_train.jpg");
+    Mat trainLabels = cv::imread("../images/liberty_train_labels.jpg", CV_LOAD_IMAGE_GRAYSCALE);
     Mat testImage = cv::imread("../images/liberty_test.jpg");
+
+    trainLabels.convertTo(trainLabels, CV_32S);
+
     SLIC slic;
     int estSuperpixelsNum = 400;
-    bool debugMode = true;
 
     ////
     // Step 1: Compute input image fragments
@@ -50,123 +180,76 @@ int main()
         }
     }
 
-    // Finding the minimum and maximum values of the labeling. minimum is 0
-
-    double  maxLabel,
-            minLabel;
-
-    minMaxLoc(labeledImage, &minLabel, &maxLabel);
-
     ////
-    // Step 2: Choose several random pixels for each fregment
+    // Step 2 + 3 combined, see RandomPatchesForEachLabel
     ////
 
-    // First, we calculate how many pixels have each label.
-    // We do this to know how many repesentatives we should pick for each label.
+    vector<vector<Rect>> testPatches = RandomPatchesForEachLabel(testImage, labeledImage);
+    Mat vizTestPatch = VisualizePatches(testImage, testPatches);
 
-    // axis shceme for the image:
-    // -y
-    // ^
-    // |
-    // |
-    // |
-    // ------> x
+    // Patches for the training image
+    vector<vector<Rect>> trainPatches = RandomPatchesForEachLabel(trainImage, trainLabels);
+    Mat vizTrainPatch = VisualizePatches(testImage, trainPatches);
 
-    vector<vector<Point>> pixelsLabeled(maxLabel + 1);
-
-    for(int i = 0; i < imageRows; i++)
-    {
-        for(int j = 0; j < imageCols; j++)
-        {
-            // cout << i << " " << j <<  " " << labeledImage.at<int>(i , j) << endl;
-            pixelsLabeled[labeledImage.at<int>(i , j)].push_back(Point(j, i));
-            // The points coordinates are reversed to maintain our axis.
-        }
-    }
-
-    cout << minLabel << " " << maxLabel << endl;
-    cout << pixelsLabeled.size() << endl;
-
-    // Choose sqrt(pointsLabeldWith(i)) points randomally
-
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    vector<vector<Point>> patchRepresentatives(maxLabel + 1);
-
-    for(int i = 0; i < maxLabel + 1; i++)
-    {
-        int currentSize = pixelsLabeled[i].size();
-        int toChoose = round(sqrt(currentSize)) / 2;
-        std::uniform_int_distribution<> dis(0, currentSize - 1);
-
-        for(int j = 0; j < toChoose; j++)
-        {
-            patchRepresentatives[i].push_back( pixelsLabeled[i][dis(gen)] );
-        }
-    }
 
     ////
-    // Step 3: Determine patches, search fo closets patch in the example image.
+    // Step 3
     ////
 
-    // We have to maintain the same size for all patches,
-    // therefore, if one patch exceeds the image limits,
-    // we will just ignore it.
+    // Calulation of color difference for patches.
+    // We use the CIE76 method to do this (CIE 1976)
 
-    // Rect is defined by (x, y) width and height
-    // (x,y) ------
-    // |
-    // |
-    // |
-    // |
-    // |
+    vector<vector<double>> distancePerPixel(testPatches.size());
+    Mat trainImageLab;
+    Mat testImageLab;
 
-    int patchRadius = 2;
+    cvtColor(trainImage, trainImageLab, CV_BGR2Lab);
+    cvtColor(testImage, testImageLab, CV_BGR2Lab);
 
-    int sideLength = 2 * patchRadius + 1;
-    vector<vector<Rect>> patches(maxLabel + 1);
-
-    for(int i = 0; i < maxLabel + 1; i++)
-    {
-        for(Point p : patchRepresentatives[i])
-        {
-            if( p.x - patchRadius >= 0
-            &&  p.y - patchRadius >= 0
-            &&  p.x + patchRadius < imageCols
-            &&  p.y + patchRadius < imageRows)
-            {
-                patches[i].push_back(Rect(p.x - patchRadius, p.y - patchRadius, sideLength, sideLength));
-            }
-        }
-    }
-
-    // Visualize the patches
-
-    Mat vizPatch = Mat::zeros(cv::Size(640, 480), CV_8UC3);
-
-    for(int i = 0; i < maxLabel + 1; i++)
-    {
-        for(Rect rec : patches[i])
-        {
-            for(int i = rec.x; i < rec.x + sideLength; i++)
-            {
-                for(int j = rec.y; j < rec.y + sideLength; j++)
-                {
-                    vizPatch.at<cv::Vec3b>(j,i) = testImage.at<cv::Vec3b>(j,i);
-                }
-            }
-        }
-    }
-
-    cout << patches[5].size() << endl;
+    // for(int i = 0; i < testPatches.size(); i++)
+    // {
+    //     for(Rect testSquare : testPatches[i])
+    //     {
+    //         for(int j = 0; j < trainPatches.size(); j++)
+    //         {
+    //             double smallestDistance = DBL_MAX;
+    //             double currentDistance;
+    //             for(Rect trainSquare : trainPatches[j])
+    //             {
+    //                 trainImageLab.at<Vec3b>()
 
 
-    imshow("w", vizPatch);
-    imshow("ww", superPixels);
+
+    //                  currentDistance = CalcPixelDistance(testImage, testSquare, trainImage, trainSquare);
+    //                  if(currentDistance < smallestDistance)
+    //                  {
+    //                     smallestDistance = currentDistance;
+    //                  }
+    //             }
+    //             distancePerPixel[i].push_back(smallestDistance);
+    //         }
+    //     }
+    // }
+
+    // vector<double> fragmentDistacne(testPatches.size());
+    // for(i = 0; i < testPatches.size(); i++)
+    // {
+    //     // Choose the median value of all minimum distances
+    //     fragmentDistacne[i] =   std::nth_element(distancePerPixel[i].begin(),
+    //                             distancePerPixel[i].begin() + distancePerPixel[i].size() / 2,
+    //                             distancePerPixel[i].end());
+    // }
+
+    // Normalize
+
+    imshow("ww", trainImage);
+    imshow("w", vizTrainPatch);
     cv::waitKey(0);
+
+    //imshow("w", vizTrainPatch);
     // Step 1 : computing input image fragments
 
-    return 0;
+    return 1;
 }
 
 //    // Proves it works
@@ -184,5 +267,98 @@ int main()
 //         for(int j = 0; j < labled.cols; j++)
 //         {
 //             labled.at<uchar>(i , j) = label[i * labled.cols + j];
+//         }
+//     }
+
+
+
+
+// // Finding the minimum and maximum values of the labeling. minimum is 0
+
+//     double  maxLabel,
+//             minLabel;
+
+//     minMaxLoc(labeledImage, &minLabel, &maxLabel);
+
+//     ////
+//     // Step 2: Choose several random pixels for each fregment
+//     ////
+
+//     // First, we calculate how many pixels have each label.
+//     // We do this to know how many repesentatives we should pick for each label.
+
+//     // axis shceme for the image:
+//     // -y
+//     // ^
+//     // |
+//     // |
+//     // |
+//     // ------> x
+
+//     vector<vector<Point>> pixelsLabeled(maxLabel + 1);
+
+//     for(int i = 0; i < imageRows; i++)
+//     {
+//         for(int j = 0; j < imageCols; j++)
+//         {
+//             // cout << i << " " << j <<  " " << labeledImage.at<int>(i , j) << endl;
+//             pixelsLabeled[labeledImage.at<int>(i , j)].push_back(Point(j, i));
+//             // The points coordinates are reversed to maintain our axis.
+//         }
+//     }
+
+//     cout << minLabel << " " << maxLabel << endl;
+//     cout << pixelsLabeled.size() << endl;
+
+//     // Choose sqrt(pointsLabeldWith(i)) points randomally
+
+//     std::random_device rd;
+//     std::mt19937 gen(rd());
+//     vector<vector<Point>> patchRepresentatives(maxLabel + 1);
+
+//     for(int i = 0; i < maxLabel + 1; i++)
+//     {
+//         int currentSize = pixelsLabeled[i].size();
+//         int toChoose = round(sqrt(currentSize)) / 2;
+//         std::uniform_int_distribution<> dis(0, currentSize - 1);
+
+//         for(int j = 0; j < toChoose; j++)
+//         {
+//             patchRepresentatives[i].push_back( pixelsLabeled[i][dis(gen)] );
+//         }
+//     }
+
+//     ////
+//     // Step 3: Determine patches, search for closets patch in the example image.
+//     ////
+
+//     // We have to maintain the same size for all patches,
+//     // therefore, if one patch exceeds the image limits,
+//     // we will just ignore it.
+
+//     // Rect is defined by (x, y) width and height
+//     // (x,y) ------
+//     // |
+//     // |
+//     // |
+//     // |
+//     // |
+
+//     int patchRadius = 2;
+
+//     int sideLength = 2 * patchRadius + 1;
+//     vector<vector<Rect>> patches(maxLabel + 1);
+
+//     for(int i = 0; i < maxLabel + 1; i++)
+//     {
+//         for(Point p : patchRepresentatives[i])
+//         {
+//             if( p.x - patchRadius >= 0
+//             &&  p.y - patchRadius >= 0
+//             &&  p.x + patchRadius < imageCols
+//             &&  p.y + patchRadius < imageRows)
+//             {
+//                 patches[i].push_back(Rect(p.x - patchRadius, p.y - patchRadius, sideLength, sideLength));
+//             }
 //         }
 //     }

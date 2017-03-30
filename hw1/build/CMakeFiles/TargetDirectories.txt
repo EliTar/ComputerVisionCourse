@@ -1,3 +1,0 @@
-/home/eli/code/computervision/hw1/build/CMakeFiles/edit_cache.dir
-/home/eli/code/computervision/hw1/build/CMakeFiles/rebuild_cache.dir
-/home/eli/code/computervision/hw1/build/CMakeFiles/hw1.dir

@@ -19,8 +19,65 @@ using cv::Point;
 using cv::Rect;
 using cv::Vec3b;
 
-const int patchRadius = 2;
+const int patchRadius = 1;
 const int sideLength = 2 * patchRadius + 1;
+
+Vec3b ConvertLabelToColor(int label)
+{
+    if(label == 0)
+        return Vec3b(0, 0, 0);
+    if(label == 1)
+        return Vec3b(255, 0, 0);
+    if(label == 2)
+        return Vec3b(0, 255, 0);
+    if(label == 3)
+        return Vec3b(0, 0, 255);
+    if(label == 4)
+        return Vec3b(255, 255, 0);
+    if(label == 5)
+        return Vec3b(255, 0, 255);
+    if(label == 6)
+        return Vec3b(0, 255, 255);
+    if(label == 7)
+        return Vec3b(128, 128, 128);
+    if(label == 8)
+        return Vec3b(255, 255, 255);
+}
+
+
+Mat FragmentToColorDistVisualization(Mat image, Mat imageLabels, vector<vector<double>> distances, int label)
+{
+    Mat vizImage = Mat::zeros(cv::Size(image.cols, image.rows), CV_8UC3);
+
+    for(int i = 0; i < imageLabels.rows; i++)
+    {
+        for(int j = 0; j < imageLabels.cols; j++)
+        {
+            Vec3b pixelColor = image.at<Vec3b>(i , j);
+            double dist = distances[imageLabels.at<int>(i , j)][label];
+            uchar a = round(pixelColor[0] * dist);
+            uchar b = round(pixelColor[1] * dist);
+            uchar c = round(pixelColor[2] * dist);
+
+            vizImage.at<Vec3b>(i , j) = Vec3b(a, b, c);
+        }
+    }
+
+    return vizImage;
+}
+
+Mat PaintLabelsTrainImage(Mat imageLabels)
+{
+    Mat newImage = Mat::zeros(cv::Size(imageLabels.cols, imageLabels.rows), CV_8UC3);
+    for(int i = 0; i < imageLabels.rows; i++)
+    {
+        for(int j = 0; j < imageLabels.cols; j++)
+        {
+            newImage.at<Vec3b>(i , j) = ConvertLabelToColor(imageLabels.at<int>(i , j));
+        }
+    }
+    return newImage;
+}
 
 Mat PaintInAverageColor(Mat image, Mat imageLabels)
 {
@@ -218,14 +275,22 @@ double Cie76Compare(Vec3b first, Vec3b second)
 
 int main()
 {
-    Mat trainImage = cv::imread("../images/liberty_train.jpg");
-    Mat trainLabels = cv::imread("../images/liberty_train_labels.jpg", CV_LOAD_IMAGE_GRAYSCALE);
-    Mat testImage = cv::imread("../images/liberty_test.jpg");
+    // Mat trainImage = cv::imread("../images/liberty_train.jpg");
+    // Mat trainLabels = cv::imread("../images/liberty_train_labels.jpg", CV_LOAD_IMAGE_GRAYSCALE);
+    // Mat testImage = cv::imread("../images/liberty_test.jpg");
+
+    Mat trainImage = cv::imread("../images/dog_train.jpg");
+    Mat trainLabels = cv::imread("../images/dog_train_labels.jpg", CV_LOAD_IMAGE_GRAYSCALE);
+    Mat testImage = cv::imread("../images/dog_test.jpg");
 
     trainLabels.convertTo(trainLabels, CV_32S);
 
+    Mat myImage = PaintLabelsTrainImage(trainLabels);
+    // imshow("w", myImage);
+    // cv::waitKey(0);
+
     SLIC slic;
-    int estSuperpixelsNum = 400;
+    int estSuperpixelsNum = 600;
 
     ////
     // Step 1: Compute input image fragments
@@ -235,13 +300,13 @@ int main()
     // The GetLabel method gives us 1-dim array with the pixel laybeling.
 
     slic.GenerateSuperpixels(testImage, estSuperpixelsNum);
-    Mat superPixels = slic.GetImgWithContours(Scalar(0,0,255));
+    Mat superPixels = slic.GetImgWithContours(Scalar(0, 0, 255));
     int* label = slic.GetLabel();
 
     // Translation of the array into a Mat object, the same size as the image
     // only with label number insted of pixel values.
 
-    Mat labeledImage = Mat::zeros(cv::Size(640, 480), CV_32S);
+    Mat labeledImage = Mat::zeros(cv::Size(testImage.cols, testImage.rows), CV_32S);
     int imageRows = labeledImage.rows;
     int imageCols = labeledImage.cols;
     for(int i = 0; i < imageRows; i++)
@@ -258,6 +323,8 @@ int main()
 
     cout << "Random patches test: " << endl;
 
+    cout << testImage.size() << " " << labeledImage.size() << endl;
+
     vector<vector<Rect>> testPatches = RandomPatchesForEachLabel(testImage, labeledImage);
     Mat vizTestPatch = VisualizePatches(testImage, testPatches);
 
@@ -266,7 +333,6 @@ int main()
     // Patches for the training image
     vector<vector<Rect>> trainPatches = RandomPatchesForEachLabel(trainImage, trainLabels);
     Mat vizTrainPatch = VisualizePatches(testImage, trainPatches);
-
 
     ////
     // Step 3
@@ -337,7 +403,6 @@ int main()
         }
     }
 
-
     // Normalize
     double  maxVal = -1,
             minVal = DBL_MAX;
@@ -368,6 +433,10 @@ int main()
         }
     }
 
+    Mat viz = FragmentToColorDistVisualization(testImage, labeledImage, normalizedFregmentColorDistance, 2);
+    // imshow("ww", viz);
+    // cv::waitKey(0);
+
     // for(int i = 0; i < fragmentDistance.size(); i++)
     // {
     //     for(int j = 0; j < trainPatches.size(); j++)
@@ -394,7 +463,7 @@ int main()
         for(int j = 0; j < avgColoredImage.cols; j++)
         {
             double currentLable = labeledImage.at<int>(i, j);
-            double currentCut = normalizedFregmentColorDistance[currentLable][3];
+            double currentCut = normalizedFregmentColorDistance[currentLable][2];
             if(currentCut < t)
                 grabCutMask.at<uchar>(i, j) = cv::GC_FGD;
             else if(currentCut >= t && currentCut < 0.5)
@@ -411,7 +480,7 @@ int main()
 
     cout << "Grab Cut: " << endl;
 
-    grabCut(avgColoredImage, grabCutMask, Rect(1, 1, 480, 640), background, foreground, 10);
+    grabCut(avgColoredImage, grabCutMask, Rect(1, 1, 480, 640), background, foreground, 3);
 
     cv::compare(grabCutMask, cv::GC_PR_FGD, grabCutMask, cv::CMP_EQ);
 
@@ -419,6 +488,8 @@ int main()
     avgColoredImage.copyTo(foregroundIm, grabCutMask);
 
     imshow("w", foregroundIm);
+    imshow("ww", trainImage);
+    imshow("www", testImage);
 
     // trainLabels = cv::imread("../images/liberty_train_labels.jpg", CV_LOAD_IMAGE_GRAYSCALE);
     // imshow("w", trainLabels);

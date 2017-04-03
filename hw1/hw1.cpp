@@ -19,7 +19,7 @@ using cv::Point;
 using cv::Rect;
 using cv::Vec3b;
 
-const int patchRadius = 1;
+const int patchRadius = 4;
 const int sideLength = 2 * patchRadius + 1;
 
 Vec3b ConvertLabelToColor(int label)
@@ -62,6 +62,29 @@ Mat FragmentToColorDistVisualization(Mat image, Mat imageLabels, vector<vector<d
             vizImage.at<Vec3b>(i , j) = Vec3b(a, b, c);
         }
     }
+
+    // vector<bool> imageLabels(size.)
+
+    // for(int i = 0; i < imageLabels.rows; i++)
+    // {
+    //     for(int j = 0; j < imageLabels.cols; j++)
+    //     {
+    //         string text = (string)dist;
+    //         int fontFace = FONT_HERSHEY_SCRIPT_SIMPLEX;
+    //         double fontScale = 2;
+    //         int thickness = 3;
+    //         cv::Point textOrg(10, 130);
+    //         cv::putText(img, text, textOrg, fontFace, fontScale, Scalar::all(255), thickness,8);
+
+    //         Vec3b pixelColor = image.at<Vec3b>(i , j);
+    //         double dist = distances[imageLabels.at<int>(i , j)][label];
+    //         uchar a = round(pixelColor[0] * dist);
+    //         uchar b = round(pixelColor[1] * dist);
+    //         uchar c = round(pixelColor[2] * dist);
+
+    //         vizImage.at<Vec3b>(i , j) = Vec3b(a, b, c);
+    //     }
+    // }
 
     return vizImage;
 }
@@ -182,7 +205,6 @@ vector<vector<Rect>> RandomPatchesForEachLabel(Mat image, Mat imageLabels)
         }
     }
 
-    // cout << minLabel << " " << maxLabel << endl;
     // cout << pixelsLabeled.size() << endl;
 
     // Choose sqrt(pointsLabeldWith(i)) points randomally
@@ -202,6 +224,7 @@ vector<vector<Rect>> RandomPatchesForEachLabel(Mat image, Mat imageLabels)
             patchRepresentatives[i].push_back( pixelsLabeled[i][dis(gen)] );
         }
     }
+
 
     ////
     // Step 3: Determine patches, search for closets patch in the example image.
@@ -239,19 +262,24 @@ vector<vector<Rect>> RandomPatchesForEachLabel(Mat image, Mat imageLabels)
     return patches;
 }
 
-Mat VisualizePatches(Mat image, vector<vector<Rect>> patches)
+// TODO: Check this function!!! likes to give exeptions. maybe its Vec3b?
+
+Mat VisualizePatches(Mat image, vector<vector<Rect>> patches, int patchLabel = -1)
 {
     Mat vizPatch = Mat::zeros(cv::Size(image.cols, image.rows), CV_8UC3);
 
     for(int i = 0; i < patches.size(); i++)
     {
-        for(Rect rec : patches[i])
+        if(patchLabel == i || patchLabel == -1)
         {
-            for(int i = rec.x; i < rec.x + sideLength; i++)
+            for(Rect rec : patches[i])
             {
-                for(int j = rec.y; j < rec.y + sideLength; j++)
+                for(int i = rec.x; i < rec.x + sideLength; i++)
                 {
-                    vizPatch.at<cv::Vec3b>(i,j) = image.at<cv::Vec3b>(i,j);
+                    for(int j = rec.y; j < rec.y + sideLength; j++)
+                    {
+                        vizPatch.at<cv::Vec3b>(i,j) = image.at<cv::Vec3b>(i,j);
+                    }
                 }
             }
         }
@@ -275,22 +303,22 @@ double Cie76Compare(Vec3b first, Vec3b second)
 
 int main()
 {
-    // Mat trainImage = cv::imread("../images/liberty_train.jpg");
-    // Mat trainLabels = cv::imread("../images/liberty_train_labels.jpg", CV_LOAD_IMAGE_GRAYSCALE);
-    // Mat testImage = cv::imread("../images/liberty_test.jpg");
+    Mat trainImage = cv::imread("../images/texture_train.tif");
+    Mat trainLabels = cv::imread("../images/texture_train_labels.tif", CV_LOAD_IMAGE_GRAYSCALE);
+    Mat testImage = cv::imread("../images/texture_test.tif");
 
-    Mat trainImage = cv::imread("../images/dog_train.jpg");
-    Mat trainLabels = cv::imread("../images/dog_train_labels.jpg", CV_LOAD_IMAGE_GRAYSCALE);
-    Mat testImage = cv::imread("../images/dog_test.jpg");
+    // Mat trainImage = cv::imread("../images/dog_train.jpg");
+    // Mat trainLabels = cv::imread("../images/dog_train_labels.jpg", CV_LOAD_IMAGE_GRAYSCALE);
+    // Mat testImage = cv::imread("../images/dog_test.jpg");
 
     trainLabels.convertTo(trainLabels, CV_32S);
 
     Mat myImage = PaintLabelsTrainImage(trainLabels);
-    // imshow("w", myImage);
+    // imshow("w", testImage);
     // cv::waitKey(0);
 
     SLIC slic;
-    int estSuperpixelsNum = 600;
+    int estSuperpixelsNum = 400;
 
     ////
     // Step 1: Compute input image fragments
@@ -323,16 +351,14 @@ int main()
 
     cout << "Random patches test: " << endl;
 
-    cout << testImage.size() << " " << labeledImage.size() << endl;
-
     vector<vector<Rect>> testPatches = RandomPatchesForEachLabel(testImage, labeledImage);
-    Mat vizTestPatch = VisualizePatches(testImage, testPatches);
+    //Mat vizTestPatch = VisualizePatches(testImage, testPatches);
 
     cout << "Random patches train: " << endl;
 
     // Patches for the training image
     vector<vector<Rect>> trainPatches = RandomPatchesForEachLabel(trainImage, trainLabels);
-    Mat vizTrainPatch = VisualizePatches(testImage, trainPatches);
+    //Mat vizTrainPatch = VisualizePatches(testImage, trainPatches);
 
     ////
     // Step 3
@@ -342,15 +368,25 @@ int main()
     // We use the CIE76 method to do this (CIE 1976)
 
     //vector<vector<double>> distancePerPixel(testPatches.size());
-    Mat trainImageLab;
-    Mat testImageLab;
+
+    Mat trainImageLab(cv::Size(trainImage.cols, trainImage.rows), CV_8UC3);
+    Mat testImageLab(cv::Size(testImage.cols, testImage.rows), CV_8UC3);
 
     vector<vector<vector<double>>> distancePerPixel(testPatches.size(), vector<vector<double>>(trainPatches.size()));
+
     // Test patch, Color, the according distances
 
-
-    cvtColor(trainImage, trainImageLab, CV_BGR2Lab);
-    cvtColor(testImage, testImageLab, CV_BGR2Lab);
+    try
+    {
+        cvtColor(trainImage, trainImageLab, CV_BGR2Lab);
+        cvtColor(testImage, testImageLab, CV_BGR2Lab);
+    }
+    catch( ... )
+    {
+        // const char* err_msg = e.what();
+        // std::cout << "exception caught: " << err_msg << std::endl;
+        cout << "fuck! this shit is bad" << endl;
+    }
 
     cout << "Calculate patch distances: " << endl;
 
@@ -371,7 +407,6 @@ int main()
                     {
                         for(int y = 0; y < sideLength; y++)
                         {
-
                             Vec3b trainPixel = trainImageLab.at<Vec3b>(trainSquare.x + x, trainSquare.y + y);
                             Vec3b testPixel = testImageLab.at<Vec3b>(testSquare.x + x, testSquare.y + y);
                             currenPatchDistance += Cie76Compare(trainPixel, testPixel);
@@ -395,13 +430,20 @@ int main()
         for(int j = 0; j < trainPatches.size(); j++)
         {
             // Choose the median value of all minimum distances
-            std::nth_element(   distancePerPixel[i][j].begin(),
-                                distancePerPixel[i][j].begin() + distancePerPixel[i][j].size() / 2,
-                                distancePerPixel[i][j].end());
+            // TODO: Check this! sometimes when = 0, segmentation fault. fuck!
+            if(distancePerPixel[i][j].size() != 0)
+            {
+                // cout << distancePerPixel[i][j].size() << "i " << i << " j " << j << endl;
+                std::nth_element(   distancePerPixel[i][j].begin(),
+                                    distancePerPixel[i][j].begin() + distancePerPixel[i][j].size() / 2,
+                                    distancePerPixel[i][j].end());
 
-            fragmentDistance[i][j] = distancePerPixel[i][j][distancePerPixel[i].size() / 2];
+                fragmentDistance[i][j] = distancePerPixel[i][j][distancePerPixel[i].size() / 2];
+            }
         }
     }
+
+    cout << "Normalize: " << endl;
 
     // Normalize
     double  maxVal = -1,
@@ -433,8 +475,12 @@ int main()
         }
     }
 
-    Mat viz = FragmentToColorDistVisualization(testImage, labeledImage, normalizedFregmentColorDistance, 2);
-    // imshow("ww", viz);
+    // Mat vizFrag = FragmentToColorDistVisualization(testImage, labeledImage, normalizedFregmentColorDistance, 0);
+    // //Mat vizPatch = VisualizePatches(trainImage, trainPatches, 0);
+    // Mat justShowTheLabeles = PaintLabelsTrainImage(trainLabels);
+    // imshow("w", justShowTheLabeles);
+    // imshow("ww", vizFrag);
+    // //imshow("www", vizPatch);
     // cv::waitKey(0);
 
     // for(int i = 0; i < fragmentDistance.size(); i++)
@@ -453,43 +499,100 @@ int main()
     ////
 
     Mat avgColoredImage = PaintInAverageColor(testImage, labeledImage);
+    Mat countVotingsForPixel = Mat::zeros(cv::Size(avgColoredImage.cols, avgColoredImage.rows), CV_8U);
+    Mat finalLabeling = Mat::zeros(cv::Size(avgColoredImage.cols, avgColoredImage.rows), CV_8U);
 
-    Mat grabCutMask = Mat::zeros(cv::Size(avgColoredImage.cols, avgColoredImage.rows), CV_8U);
+    int t = 0.00001;
+    vector<Mat> foregroundImages(trainPatches.size());
 
-    int t = 0.01;
+    for(int labelNumber = 0; labelNumber < trainPatches.size(); labelNumber++)
+    {
+        Mat grabCutMask = Mat::zeros(cv::Size(avgColoredImage.cols, avgColoredImage.rows), CV_8U);
+
+        for(int i = 0; i < avgColoredImage.rows; i++)
+        {
+            for(int j = 0; j < avgColoredImage.cols; j++)
+            {
+                double currentLable = labeledImage.at<int>(i, j);
+                double currentCut = normalizedFregmentColorDistance[currentLable][labelNumber];
+                if(currentCut < t)
+                {
+                    grabCutMask.at<uchar>(i, j) = cv::GC_FGD;
+                }
+                else if(currentCut < 0.2)
+                    grabCutMask.at<uchar>(i, j)  = cv::GC_PR_FGD;
+                else if(currentCut >= 0.2 && currentCut < 1)
+                    grabCutMask.at<uchar>(i, j)  = cv::GC_PR_BGD;
+                else if(currentCut >= 1 - t)
+                {
+                    grabCutMask.at<uchar>(i, j)  = cv::GC_BGD;
+                }
+            }
+        }
+
+        cout << "Grab Cut " << labelNumber << ":" << endl;
+
+        Mat background;
+        Mat foreground;
+        grabCut(avgColoredImage, grabCutMask, Rect(1, 1, 480, 640), background, foreground, 5);
+        cv::compare(grabCutMask, cv::GC_PR_FGD, grabCutMask, cv::CMP_EQ);
+        // This sets pixels that are equal to 255.
+
+        foregroundImages[labelNumber] = Mat(avgColoredImage.size(), CV_8UC3, Scalar(255,255,255));
+        avgColoredImage.copyTo(foregroundImages[labelNumber], grabCutMask);
+
+        for(int i = 0; i < avgColoredImage.rows; i++)
+        {
+            for(int j = 0; j < avgColoredImage.cols; j++)
+            {
+                if(grabCutMask.at<uchar>(i, j) == 255)
+                {
+                    finalLabeling.at<uchar>(i, j) = labelNumber;
+                    countVotingsForPixel.at<uchar>(i, j)++;
+                }
+            }
+        }
+
+        // Mat finalVizi = PaintLabelsTrainImage(finalLabeling);
+        // imshow("w", finalVizi);
+        // imshow("ww", grabCutMask);
+        // cv::waitKey(0);
+    }
+
+
+    cout << "Final Labeling: " << endl;
 
     for(int i = 0; i < avgColoredImage.rows; i++)
     {
         for(int j = 0; j < avgColoredImage.cols; j++)
         {
-            double currentLable = labeledImage.at<int>(i, j);
-            double currentCut = normalizedFregmentColorDistance[currentLable][2];
-            if(currentCut < t)
-                grabCutMask.at<uchar>(i, j) = cv::GC_FGD;
-            else if(currentCut >= t && currentCut < 0.5)
-                grabCutMask.at<uchar>(i, j)  = cv::GC_PR_FGD;
-            else if(currentCut >= 0.5 && currentCut < 1 - t)
-                grabCutMask.at<uchar>(i, j)  = cv::GC_PR_BGD;
-            else if(currentCut >= 1 - t)
-                grabCutMask.at<uchar>(i, j)  = cv::GC_BGD;
+            if(countVotingsForPixel.at<uchar>(i, j) != 1)
+            {
+                int index = 0;
+                for(int k = 0; k < trainPatches.size(); k++)
+                {
+                    if( normalizedFregmentColorDistance[labeledImage.at<int>(i, j)][k] <
+                        normalizedFregmentColorDistance[labeledImage.at<int>(i, j)][index] )
+                        {
+                            index = k;
+                        }
+                }
+                finalLabeling.at<uchar>(i, j) = index;
+            }
         }
     }
 
-    Mat background;
-    Mat foreground;
 
-    cout << "Grab Cut: " << endl;
+    //imshow("w", foregroundImages[0]);
+    // imshow("ww", foregroundImages[1]);
+    // imshow("www", foregroundImages[2]);
 
-    grabCut(avgColoredImage, grabCutMask, Rect(1, 1, 480, 640), background, foreground, 3);
+    finalLabeling.convertTo(finalLabeling, CV_32S);
+    Mat finalViz = PaintLabelsTrainImage(finalLabeling);
+    imshow("w", finalViz);
 
-    cv::compare(grabCutMask, cv::GC_PR_FGD, grabCutMask, cv::CMP_EQ);
-
-    Mat foregroundIm(avgColoredImage.size(), CV_8UC3, Scalar(255,255,255));
-    avgColoredImage.copyTo(foregroundIm, grabCutMask);
-
-    imshow("w", foregroundIm);
-    imshow("ww", trainImage);
-    imshow("www", testImage);
+    // imshow("ww", trainImage);
+    // imshow("www", testImage);
 
     // trainLabels = cv::imread("../images/liberty_train_labels.jpg", CV_LOAD_IMAGE_GRAYSCALE);
     // imshow("w", trainLabels);

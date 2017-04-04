@@ -10,6 +10,7 @@ using std::cout;
 using std::endl;
 
 using std::vector;
+using std::string;
 
 using cv::imshow;
 using cv::imread;
@@ -18,6 +19,7 @@ using cv::Scalar;
 using cv::Point;
 using cv::Rect;
 using cv::Vec3b;
+using cv::Size;
 
 const int patchRadius = 4;
 const int sideLength = 2 * patchRadius + 1;
@@ -91,6 +93,7 @@ Mat FragmentToColorDistVisualization(Mat image, Mat imageLabels, vector<vector<d
 
 Mat PaintLabelsTrainImage(Mat imageLabels)
 {
+    imageLabels.convertTo(imageLabels, CV_32S);
     Mat newImage = Mat::zeros(cv::Size(imageLabels.cols, imageLabels.rows), CV_8UC3);
     for(int i = 0; i < imageLabels.rows; i++)
     {
@@ -301,11 +304,141 @@ double Cie76Compare(Vec3b first, Vec3b second)
     return sqrt(differences);
 }
 
-int main()
+
+Mat drawBoarderFromLabels(Mat image, Mat imageLabels)
 {
-    Mat trainImage = cv::imread("../images/texture_train.tif");
-    Mat trainLabels = cv::imread("../images/texture_train_labels.tif", CV_LOAD_IMAGE_GRAYSCALE);
-    Mat testImage = cv::imread("../images/texture_test.tif");
+    imageLabels.convertTo(imageLabels, CV_32S);
+    Mat newImage = Mat::zeros(cv::Size(image.cols, image.rows), CV_8UC3);
+
+    int imageCols = image.cols;
+    int imageRows = image.rows;
+
+    for(int i = 1; i < imageRows - 1; i++)
+    {
+        for(int j = 1; j < imageCols - 1; j++)
+        {
+            bool boarderPixel = false;
+            for(int x = -1; x < 2; x++)
+            {
+                for(int y = -1; y < 2; y++)
+                {
+                    if( imageLabels.at<int>(i + x , j + y) != imageLabels.at<int>(i , j) )
+                        boarderPixel = true;
+                }
+            }
+            if(boarderPixel)
+                newImage.at<cv::Vec3b>(i, j) = cv::Vec3b(0, 0, 255);
+            else
+                newImage.at<cv::Vec3b>(i, j) = image.at<cv::Vec3b>(i, j);
+        }
+    }
+
+    return newImage;
+}
+
+Mat subtructFregmentAverageColor(Mat image, Mat imageLabels)
+{
+    Mat newImage = Mat::zeros(cv::Size(image.cols, image.rows), CV_8UC3);
+
+    const int   imageRows = image.rows,
+                imageCols = image.cols;
+    double      maxLabel,
+                minLabel;
+
+    minMaxLoc(imageLabels, &minLabel, &maxLabel);
+
+    vector<vector<Point>> pixelsLabeledPoints(maxLabel + 1);
+    vector<vector<int>> pixelsLabeledValues(maxLabel + 1);
+
+    for(int i = 0; i < imageRows; i++)
+    {
+        for(int j = 0; j < imageCols; j++)
+        {
+            pixelsLabeledPoints[imageLabels.at<int>(i , j)].push_back(Point(i, j));
+            pixelsLabeledValues[imageLabels.at<int>(i , j)].push_back(image.at<Vec3b>(i, j)[0]);
+            pixelsLabeledValues[imageLabels.at<int>(i , j)].push_back(image.at<Vec3b>(i, j)[1]);
+            pixelsLabeledValues[imageLabels.at<int>(i , j)].push_back(image.at<Vec3b>(i, j)[2]);
+        }
+    }
+
+    for(int i = 0; i < pixelsLabeledPoints.size(); i++)
+    {
+        int fregmentAverage = (int) (accumulate( pixelsLabeledValues[i].begin(), pixelsLabeledValues[i].end(), 0.0) / pixelsLabeledValues[i].size() );
+        for(Point p : pixelsLabeledPoints[i])
+        {
+            Vec3b currentColor = image.at<Vec3b>(p.x , p.y);
+            int a = currentColor[0] - fregmentAverage;
+            int b = currentColor[1] - fregmentAverage;
+            int c = currentColor[2] - fregmentAverage;
+            newImage.at<Vec3b>(p.x , p.y) = Vec3b(a, b, c);
+        }
+    }
+
+    return newImage;
+}
+
+void usage()
+{
+    std::cout << "\n Usage: hw1 [FILE_NAME]\n"
+	      << '\n'
+	      << "Please make sure you have the following files in the images folder: \n"
+	      << "\"[FILE_NAME]_train\" \"[FILE_NAME]_test\" with .jpg or .tif endings. \n"
+          << "Also, \"[FILE_NAME]_train_labels.tif\" should be placed there. \n"
+          << "Good luck! \n"
+          << endl;
+}
+
+// TODO: throw an exepction?
+
+Mat tryLoadingImage(string path)
+{
+    string jpgEnding = ".jpg";
+    string tifEnding = ".tif";
+
+    Mat image = cv::imread(path + jpgEnding);
+    if(! image.data )
+    {
+        Mat image = cv::imread(path + tifEnding);
+        if(! image.data )
+        {
+            cout << "\n Please make sure \"" + path + "\" is located in the right location. \n";
+        }
+    }
+
+    return image;
+}
+
+int main(int argc, char *argv[])
+{
+    // Reciving user input for the image.
+
+    string folder = "../images/";
+    string testString = "_test";
+    string trainString = "_train";
+    string trainLabelsString = "_train_labels.tif";
+    string fileName;
+
+    if (argc != 2)
+    {
+		usage();
+		return 1;
+    }
+    else
+    {
+        fileName = (string)argv[1];
+    }
+
+    // Mat trainImage = cv::imread("../images/kayak_train.jpg");
+    // Mat trainLabels = cv::imread("../images/kayak_train_labels.tif", CV_LOAD_IMAGE_GRAYSCALE);
+    // Mat testImage = cv::imread("../images/kayak_test.jpg");
+
+    string trainImagePath = folder + fileName + trainString;
+    string trainLabelsPath = folder + fileName + trainLabelsString;
+    string testImagePath = folder + fileName + testString;
+
+    Mat trainImage = tryLoadingImage(trainImagePath);
+    Mat trainLabels = cv::imread(trainLabelsPath, CV_LOAD_IMAGE_GRAYSCALE);
+    Mat testImage = tryLoadingImage(testImagePath);
 
     // Mat trainImage = cv::imread("../images/dog_train.jpg");
     // Mat trainLabels = cv::imread("../images/dog_train_labels.jpg", CV_LOAD_IMAGE_GRAYSCALE);
@@ -345,6 +478,10 @@ int main()
         }
     }
 
+    Mat showMeThePixels = drawBoarderFromLabels(testImage, labeledImage);
+    cv::imshow("w", showMeThePixels);
+    cv::waitKey(0);
+
     ////
     // Step 2 + 3 combined, see RandomPatchesForEachLabel
     ////
@@ -352,7 +489,7 @@ int main()
     cout << "Random patches test: " << endl;
 
     vector<vector<Rect>> testPatches = RandomPatchesForEachLabel(testImage, labeledImage);
-    //Mat vizTestPatch = VisualizePatches(testImage, testPatches);
+    //Mat vizTestPatch = VisualizePatches(testImage, testPatches, 1);
 
     cout << "Random patches train: " << endl;
 
@@ -376,17 +513,13 @@ int main()
 
     // Test patch, Color, the according distances
 
-    try
-    {
-        cvtColor(trainImage, trainImageLab, CV_BGR2Lab);
-        cvtColor(testImage, testImageLab, CV_BGR2Lab);
-    }
-    catch( ... )
-    {
-        // const char* err_msg = e.what();
-        // std::cout << "exception caught: " << err_msg << std::endl;
-        cout << "fuck! this shit is bad" << endl;
-    }
+    // TODO: look at this. Just trying things out and hoping for the best...
+
+    // testImage = subtructFregmentAverageColor(testImage, labeledImage);
+    // trainImage = subtructFregmentAverageColor(trainImage, trainLabels);
+
+    cvtColor(trainImage, trainImageLab, CV_BGR2Lab);
+    cvtColor(testImage, testImageLab, CV_BGR2Lab);
 
     cout << "Calculate patch distances: " << endl;
 
@@ -475,6 +608,32 @@ int main()
         }
     }
 
+    // Normalize each fragment distance
+
+    for(int i = 0; i < testPatches.size(); i++)
+    {
+        maxVal = -1;
+        minVal = DBL_MAX;
+
+        for(int j = 0; j < trainPatches.size(); j++)
+        {
+            if(normalizedFregmentColorDistance[i][j] > maxVal)
+            {
+                maxVal = normalizedFregmentColorDistance[i][j];
+            }
+            if(normalizedFregmentColorDistance[i][j] < minVal)
+            {
+                minVal = normalizedFregmentColorDistance[i][j];
+            }
+        }
+        for(int j = 0; j < trainPatches.size(); j++)
+        {
+            normalizedFregmentColorDistance[i][j] =
+                        (normalizedFregmentColorDistance[i][j] - minVal) /
+                        (maxVal - minVal);
+        }
+    }
+
     // Mat vizFrag = FragmentToColorDistVisualization(testImage, labeledImage, normalizedFregmentColorDistance, 0);
     // //Mat vizPatch = VisualizePatches(trainImage, trainPatches, 0);
     // Mat justShowTheLabeles = PaintLabelsTrainImage(trainLabels);
@@ -493,7 +652,6 @@ int main()
     // }
     // cout << maxVal << " " << minVal << endl;
 
-
     ////
     // Step 4: we now have the mapping! huryy!!!!
     ////
@@ -502,7 +660,6 @@ int main()
     Mat countVotingsForPixel = Mat::zeros(cv::Size(avgColoredImage.cols, avgColoredImage.rows), CV_8U);
     Mat finalLabeling = Mat::zeros(cv::Size(avgColoredImage.cols, avgColoredImage.rows), CV_8U);
 
-    int t = 0.00001;
     vector<Mat> foregroundImages(trainPatches.size());
 
     for(int labelNumber = 0; labelNumber < trainPatches.size(); labelNumber++)
@@ -515,18 +672,19 @@ int main()
             {
                 double currentLable = labeledImage.at<int>(i, j);
                 double currentCut = normalizedFregmentColorDistance[currentLable][labelNumber];
-                if(currentCut < t)
-                {
-                    grabCutMask.at<uchar>(i, j) = cv::GC_FGD;
-                }
-                else if(currentCut < 0.2)
+                // if(currentCut == 0)
+                // {
+                //     grabCutMask.at<uchar>(i, j) = cv::GC_FGD;
+                // }
+                // else if(currentCut = 1)
+                // {
+                //     grabCutMask.at<uchar>(i, j)  = cv::GC_BGD;
+                // }
+                if(currentCut < 0.1)
                     grabCutMask.at<uchar>(i, j)  = cv::GC_PR_FGD;
-                else if(currentCut >= 0.2 && currentCut < 1)
+                else if(currentCut >= 0.1)
                     grabCutMask.at<uchar>(i, j)  = cv::GC_PR_BGD;
-                else if(currentCut >= 1 - t)
-                {
-                    grabCutMask.at<uchar>(i, j)  = cv::GC_BGD;
-                }
+
             }
         }
 
@@ -559,7 +717,6 @@ int main()
         // cv::waitKey(0);
     }
 
-
     cout << "Final Labeling: " << endl;
 
     for(int i = 0; i < avgColoredImage.rows; i++)
@@ -582,14 +739,23 @@ int main()
         }
     }
 
+    imshow("www", foregroundImages[0]);
+    imshow("wwwww", foregroundImages[1]);
+    // imshow("wwwwww", foregroundImages[2]);
+    // imshow("wwwwwww", foregroundImages[3]);
 
-    //imshow("w", foregroundImages[0]);
-    // imshow("ww", foregroundImages[1]);
-    // imshow("www", foregroundImages[2]);
-
-    finalLabeling.convertTo(finalLabeling, CV_32S);
+    //finalLabeling.convertTo(finalLabeling, CV_32S);
     Mat finalViz = PaintLabelsTrainImage(finalLabeling);
+    Mat finalVizBoarder = drawBoarderFromLabels(testImage, finalLabeling);
+
     imshow("w", finalViz);
+    imshow("ww", finalVizBoarder);
+
+    // int elementN = 4;
+    // Mat element = getStructuringElement(cv::MORPH_RECT, Size(elementN*2+1, elementN*2+1), Point(elementN, elementN));
+	// morphologyEx(finalLabeling, finalLabeling, cv::MORPH_CLOSE, element);
+    // finalVizBoarder = drawBoarderFromLabels(testImage, finalLabeling);
+    // imshow("www", finalVizBoarder);
 
     // imshow("ww", trainImage);
     // imshow("www", testImage);
@@ -600,7 +766,10 @@ int main()
     //imshow("w", vizTrainPatch);
     //imshow("ww", trainImage);
     //imshow("www", avgColoredImage);
-    cv::waitKey(0);
+    while(cv::waitKey(0) != 'q')
+    {
+
+    }
 
     //imshow("w", vizTrainPatch);
     // Step 1 : computing input image fragments

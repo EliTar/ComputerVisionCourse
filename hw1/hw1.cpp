@@ -305,21 +305,18 @@ Mat VisualizePatches(Mat image, vector<vector<Rect>> patches, int patchLabel = -
     return vizPatch;
 }
 
-double subSquare(uchar a, uchar b)
-{
-    return (a - b) * (a - b);
-}
-
 double Cie76Compare(Vec3b first, Vec3b second)
 {
-    double differences =    subSquare(first[0], second[0])
-                            +  subSquare(first[1], second[1])
-                            +  subSquare(first[2], second[2]);
+	double d0 = first[0] - second[0];
+	double d1 = first[1] - second[1];
+	double d2 = first[2] - second[2];
+
+    double differences = d0 * d0 + d1 * d1 + d2 * d2;
     return sqrt(differences);
 }
 
 
-Mat drawBoarderFromLabels(Mat image, Mat imageLabels)
+Mat DrawBorderFromLabels(Mat image, Mat imageLabels)
 {
     imageLabels.convertTo(imageLabels, CV_32S);
     Mat newImage = Mat::zeros(cv::Size(image.cols, image.rows), CV_8UC3);
@@ -350,7 +347,7 @@ Mat drawBoarderFromLabels(Mat image, Mat imageLabels)
     return newImage;
 }
 
-Mat subtructFregmentAverageColor(Mat image, Mat imageLabels)
+Mat SubtructFregmentAverageColor(Mat image, Mat imageLabels)
 {
     imageLabels.convertTo(imageLabels, CV_32S);
     Mat newImage = Mat::zeros(cv::Size(image.cols, image.rows), CV_8UC3);
@@ -398,7 +395,7 @@ Mat subtructFregmentAverageColor(Mat image, Mat imageLabels)
     return newImage;
 }
 
-void usage()
+void Usage()
 {
     std::cout << "\n Usage: hw1 [FILE_NAME]\n"
 	      << '\n'
@@ -409,53 +406,48 @@ void usage()
           << endl;
 }
 
-// TODO: throw an exepction?
-
-Mat tryLoadingImage(string path)
+Mat LoadImageWithSomeExtension(string basePath, int flags = cv::IMREAD_COLOR)
 {
-    string jpgEnding = ".jpg";
-    string tifEnding = ".tif";
+	static vector<string> extensions = {
+		".tif",
+		".jpg",
+		".png",
+	};
 
-    Mat image = cv::imread(path + jpgEnding);
-    if(! image.data )
-    {
-        image = cv::imread(path + tifEnding);
-        if(! image.data )
-        {
-            cout << "\n Please make sure \"" + path + "\" is located in the right location. \n";
-        }
-    }
+	for (auto ext : extensions)
+	{
+		Mat image = cv::imread(basePath + ext, flags);
 
-    return image;
+		if (image.data)
+			return image;
+	}
+
+	std::cerr << "ERROR: Couldn't open file " + basePath << endl;
+	std::cerr << "Please make sure it is there with the correct extension" << endl;
+	std::exit(-1);
 }
 
 int main(int argc, char *argv[])
 {
     // Reciving user input for the image.
 
-    string folder = "../images/";
-    string testString = "_test";
-    string trainString = "_train";
-    string trainLabelsString = "_train_labels.tif";
-    string fileName;
-
     if (argc != 2)
     {
-		usage();
+		Usage();
 		return 1;
     }
-    else
-    {
-        fileName = string{argv[1]};
-    }
 
-    string trainImagePath = folder + fileName + trainString;
-    string trainLabelsPath = folder + fileName + trainLabelsString;
-    string testImagePath = folder + fileName + testString;
+	string fileName = string{argv[1]};
 
-    Mat trainImage = tryLoadingImage(trainImagePath);
-    Mat trainLabels = cv::imread(trainLabelsPath, CV_LOAD_IMAGE_GRAYSCALE);
-    Mat testImage = tryLoadingImage(testImagePath);
+    string folder = "../images/";
+
+    string trainImagePath = folder + fileName + "_train";
+    string trainLabelsPath = folder + fileName + "_train_labels";
+    string testImagePath = folder + fileName + "_test";
+
+    Mat trainImage = LoadImageWithSomeExtension(trainImagePath);
+    Mat trainLabels = LoadImageWithSomeExtension(trainLabelsPath, CV_LOAD_IMAGE_GRAYSCALE);
+    Mat testImage = LoadImageWithSomeExtension(testImagePath);
 
     SLIC slic;
     int estSuperpixelsNum = 1000;
@@ -488,7 +480,7 @@ int main(int argc, char *argv[])
 
     // Utility: shows the superpixels formed on the image.
 
-    // Mat showMeThePixels = drawBoarderFromLabels(testImage, testLabels);
+    // Mat showMeThePixels = DrawBorderFromLabels(testImage, testLabels);
     // cv::imshow("w", showMeThePixels);
     // cv::waitKey(0);
 
@@ -531,8 +523,8 @@ int main(int argc, char *argv[])
     // Test patch, Color, the according distances
 
     // TODO: look at this. Just trying things out and hoping for the best...
-    // testImage = subtructFregmentAverageColor(testImage, testLabels);
-    // trainImage = subtructFregmentAverageColor(trainImage, trainLabels);
+    // testImage = SubtructFregmentAverageColor(testImage, testLabels);
+    // trainImage = SubtructFregmentAverageColor(trainImage, trainLabels);
 
     cvtColor(trainImage, trainImageLab, CV_BGR2Lab);
     cvtColor(testImage, testImageLab, CV_BGR2Lab);
@@ -811,7 +803,7 @@ int main(int argc, char *argv[])
 
     //finalLabeling.convertTo(finalLabeling, CV_32S);
     Mat finalViz = PaintLabelsTrainImage(finalLabeling);
-    Mat finalVizBoarder = drawBoarderFromLabels(testImage, finalLabeling);
+    Mat finalVizBoarder = DrawBorderFromLabels(testImage, finalLabeling);
 
     imshow("Final Labeling", finalViz);
     imshow("Contours", finalVizBoarder);
@@ -819,7 +811,7 @@ int main(int argc, char *argv[])
     // int elementN = 4;
     // Mat element = getStructuringElement(cv::MORPH_RECT, Size(elementN*2+1, elementN*2+1), Point(elementN, elementN));
 	// morphologyEx(finalLabeling, finalLabeling, cv::MORPH_CLOSE, element);
-    // finalVizBoarder = drawBoarderFromLabels(testImage, finalLabeling);
+    // finalVizBoarder = DrawBorderFromLabels(testImage, finalLabeling);
     // imshow("www", finalVizBoarder);
 
     // imshow("ww", trainImage);

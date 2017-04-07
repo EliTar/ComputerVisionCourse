@@ -370,6 +370,9 @@ void SegmentSuperPixelsSLIC(
 	VisualizeSuperPixels(connectedSegment, display, kernelColorBGR, kernelPosition, true, false);
 	cv::imshow("Super Pixels", display);
 	cv::waitKey(1);
+	cv::waitKey(1);
+
+	// NOTE(Andrey): With one waitKey(1), the window sometimes doesn't update
 }
 
 Vec3b ConvertLabelToColor(int label)
@@ -470,9 +473,9 @@ Mat PaintInAverageColor(Mat image, Mat imageLabels)
 
     vector<int> howMany(maxLabel + 1, 0);
 
-    for(int i = 0; i < pixelValues.size(); i++)
+    for(unsigned int i = 0; i < pixelValues.size(); i++)
     {
-        for(int j = 0; j < pixelValues[i].size(); j++)
+        for(unsigned int j = 0; j < pixelValues[i].size(); j++)
         {
             sumA[i] += pixelValues[i][j][0];
             sumB[i] += pixelValues[i][j][1];
@@ -482,7 +485,7 @@ Mat PaintInAverageColor(Mat image, Mat imageLabels)
     }
 
     vector<Vec3b> avgPixels(maxLabel + 1);
-    for(int i = 0; i < pixelValues.size(); i++)
+    for(unsigned int i = 0; i < pixelValues.size(); i++)
     {
         avgPixels[i][0] = sumA[i] / howMany[i];
         avgPixels[i][1] = sumB[i] / howMany[i];
@@ -605,7 +608,7 @@ Mat VisualizePatches(Mat image, vector<vector<Rect>> patches, int patchLabel = -
 {
     Mat vizPatch = Mat::zeros(cv::Size(image.cols, image.rows), CV_8UC3);
 
-    for(int i = 0; i < patches.size(); i++)
+    for(int i = 0; i < (int)patches.size(); i++)
     {
         if(patchLabel == i || patchLabel == -1)
         {
@@ -694,7 +697,7 @@ Mat SubtructFregmentAverageColor(Mat image, Mat imageLabels)
         }
     }
 
-    for(int i = 0; i < pixelsLabeledPoints.size(); i++)
+    for(int i = 0; i < (int)pixelsLabeledPoints.size(); i++)
     {
         int fregmentAverage = (int) (accumulate( pixelsLabeledValues[i].begin(), pixelsLabeledValues[i].end(), 0.0) / (pixelsLabeledValues[i].size() * 3) );
         for(Point p : pixelsLabeledPoints[i])
@@ -768,8 +771,6 @@ void DecreaseImageContrast(Mat &image, int by = 2)
 
 int main(int argc, char *argv[])
 {
-    // Reciving user input for the image.
-
     if (argc != 2)
     {
 		Usage();
@@ -836,11 +837,11 @@ int main(int argc, char *argv[])
 	DecreaseImageContrast(trainImage, 2);
     vector<vector<Rect>> trainPatches = RandomPatchesForEachLabel(trainImage, trainLabels);
 
-	for (int i = -1; i < 5; i++) {
-		Mat vizTrainPatch = VisualizePatches(trainImage, trainPatches, i);
-		cv::imshow("w", vizTrainPatch);
-		cv::waitKey(0);
-	}
+	// for (int i = -1; i < 5; i++) {
+	// 	Mat vizTrainPatch = VisualizePatches(trainImage, trainPatches, i);
+	// 	cv::imshow("w", vizTrainPatch);
+	// 	cv::waitKey(0);
+	// }
 
     ////
     // Step 3
@@ -878,14 +879,12 @@ int main(int argc, char *argv[])
 
     vector<vector<vector<double>>> distancePerPixel(testPatches.size(), vector<vector<double>>(trainPatches.size()));
 
-    for(int i = 0; i < testPatches.size(); i++)
+    for(int i = 0; i < (int)testPatches.size(); i++)
     {
         for(Rect testSquare : testPatches[i])
         {
-            for(int j = 0; j < trainPatches.size(); j++)
+            for(int j = 0; j < (int)trainPatches.size(); j++)
             {
-                double smallestDistance = DBL_MAX;
-                double currentDistance;
                 double smallestColorDistance = DBL_MAX;
 
                 for(Rect trainSquare : trainPatches[j])
@@ -916,9 +915,9 @@ int main(int argc, char *argv[])
     // A robust voting scheme as explaind in the article.
 
     vector<vector<double>> fragmentDistance(testPatches.size(), vector<double>(trainPatches.size()));
-    for(int i = 0; i < testPatches.size(); i++)
+    for(int i = 0; i < (int)testPatches.size(); i++)
     {
-        for(int j = 0; j < trainPatches.size(); j++)
+        for(int j = 0; j < (int)trainPatches.size(); j++)
         {
             // TODO: Check this! sometimes when = 0, segmentation fault. fuck!
             if(distancePerPixel[i][j].size() != 0)
@@ -942,9 +941,9 @@ int main(int argc, char *argv[])
     double  maxVal = -1,
             minVal = DBL_MAX;
 
-    for(int i = 0; i < fragmentDistance.size(); i++)
+    for(int i = 0; i < (int)fragmentDistance.size(); i++)
     {
-        for(int j = 0; j < trainPatches.size(); j++)
+        for(int j = 0; j < (int)trainPatches.size(); j++)
         {
             if(fragmentDistance[i][j] > maxVal)
             {
@@ -958,9 +957,9 @@ int main(int argc, char *argv[])
     }
     vector<vector<double>> normalizedFregmentColorDistance(testPatches.size(), vector<double>(trainPatches.size()));
 
-    for(int i = 0; i < fragmentDistance.size(); i++)
+    for(int i = 0; i < (int)fragmentDistance.size(); i++)
     {
-        for(int j = 0; j < trainPatches.size(); j++)
+        for(int j = 0; j < (int)trainPatches.size(); j++)
         {
             normalizedFregmentColorDistance[i][j] =
                         (fragmentDistance[i][j] - minVal) /
@@ -980,12 +979,12 @@ int main(int argc, char *argv[])
     // meaning, if a certain distance is 0.1 it makes a big difference if it's normalized
     // globally or locally, patch-wise.
 
-    for(int i = 0; i < testPatches.size(); i++)
+    for(int i = 0; i < (int)testPatches.size(); i++)
     {
         maxVal = -1;
         minVal = DBL_MAX;
 
-        for(int j = 0; j < trainPatches.size(); j++)
+        for(int j = 0; j < (int)trainPatches.size(); j++)
         {
             if(normalizedFregmentColorDistance[i][j] > maxVal)
             {
@@ -996,7 +995,7 @@ int main(int argc, char *argv[])
                 minVal = normalizedFregmentColorDistance[i][j];
             }
         }
-        for(int j = 0; j < trainPatches.size(); j++)
+        for(int j = 0; j < (int)trainPatches.size(); j++)
         {
             normalizedFregmentColorDistance[i][j] =
                         (normalizedFregmentColorDistance[i][j] - minVal) /
@@ -1034,9 +1033,9 @@ int main(int argc, char *argv[])
 
     vector<Mat> foregroundImages(trainPatches.size());
 
-    for(int labelNumber = 0; labelNumber < trainPatches.size(); labelNumber++)
+    for(int labelNumber = 0; labelNumber < (int)trainPatches.size(); labelNumber++)
     {
-        Mat grabCutMask = Mat::zeros(cv::Size(avgColoredImage.cols, avgColoredImage.rows), CV_8U);
+        Mat grabCutMask = Mat::zeros(avgColoredImage.size(), CV_8U);
 
         for(int i = 0; i < avgColoredImage.rows; i++)
         {
@@ -1110,7 +1109,7 @@ int main(int argc, char *argv[])
             if(countVotingsForPixel.at<uchar>(i, j) != 1)
             {
                 int index = 0;
-                for(int k = 0; k < trainPatches.size(); k++)
+                for(int k = 0; k < (int)trainPatches.size(); k++)
                 {
                     if( normalizedFregmentColorDistance[testLabels.at<int>(i, j)][k] <
                         normalizedFregmentColorDistance[testLabels.at<int>(i, j)][index] )
@@ -1123,7 +1122,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    for(int i = 0; i < trainPatches.size(); i++)
+    for(int i = 0; i < (int)trainPatches.size(); i++)
     {
 		// Foreground 0
 		// Foreground 1
@@ -1137,8 +1136,8 @@ int main(int argc, char *argv[])
     Mat finalViz = PaintLabelsTrainImage(finalLabeling);
     Mat finalVizBoarder = DrawBorderFromLabels(testImage, finalLabeling);
 
-    imshow("Final Labeling", finalViz);
     imshow("Contours", finalVizBoarder);
+    imshow("Final Labeling", finalViz);
 
     // int elementN = 4;
     // Mat element = getStructuringElement(cv::MORPH_RECT, Size(elementN*2+1, elementN*2+1), Point(elementN, elementN));
@@ -1157,7 +1156,7 @@ int main(int argc, char *argv[])
     while(cv::waitKey(0) != 'q')
     { }
 
-    return 1;
+    return 0;
 }
 
 //    // Proves it works

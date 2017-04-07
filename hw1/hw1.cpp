@@ -42,6 +42,8 @@ using cv::Mat1b;
 using cv::Mat3b;
 using cv::Mat3f;
 
+#define UTILITY if (false)
+
 const int patchRadius = 3;
 const int sideLength = 2 * patchRadius + 1;
 
@@ -514,7 +516,7 @@ Mat PaintInAverageColor(Mat image, Mat imageLabels)
     return newImage;
 }
 
-vector<vector<Rect>> RandomPatchesForEachLabel(Mat image, Mat imageLabels)
+vector<vector<Rect>> RandomPatchesForEachLabel(Mat image, Mat imageLabels, bool innerPatchesOnly = false)
 {
     imageLabels.convertTo(imageLabels, CV_32S);
 
@@ -546,27 +548,27 @@ vector<vector<Rect>> RandomPatchesForEachLabel(Mat image, Mat imageLabels)
 	// 3) Not be on the edge between segments
 	//
 
-    for(int i = patchRadius; i < imageRows - patchRadius; i++)
+    for(int r = patchRadius; r < imageRows - patchRadius; r++)
     {
-        for(int j = patchRadius; j < imageCols - patchRadius; j++)
+        for(int c = patchRadius; c < imageCols - patchRadius; c++)
         {
-			Point p{j, i};
+			Point p{c, r};
 
-			Point c1{j - patchRadius, i - patchRadius};
-			Point c2{j - patchRadius, i + patchRadius};
-			Point c3{j + patchRadius, i - patchRadius};
-			Point c4{j + patchRadius, i + patchRadius};
+			Point c1{c - patchRadius, r - patchRadius};
+			Point c2{c - patchRadius, r + patchRadius};
+			Point c3{c + patchRadius, r - patchRadius};
+			Point c4{c + patchRadius, r + patchRadius};
 
 			bool innerPatch = imageLabels.at<int>(p) == imageLabels.at<int>(c1) &&
 					imageLabels.at<int>(p) == imageLabels.at<int>(c2) &&
 					imageLabels.at<int>(p) == imageLabels.at<int>(c3) &&
 					imageLabels.at<int>(p) == imageLabels.at<int>(c4);
 
-			int label = imageLabels.at<int>(i , j);
+			int label = imageLabels.at<int>(r , c);
 
-			if (innerPatch)
+			if (innerPatch || !innerPatchesOnly)
 			{
-				pixelsByLabel[label].push_back(Point(i, j));
+				pixelsByLabel[label].push_back(Point(c, r));
 			}
 			pixelCountByLabel[label]++;
         }
@@ -629,16 +631,34 @@ Mat VisualizePatches(Mat image, vector<vector<Rect>> patches, int patchLabel = -
     return vizPatch;
 }
 
-double Cie76Compare(Vec3b first, Vec3b second)
+double PatchDistance(const Mat& a, const Mat& b)
 {
-	double d0 = first[0] - second[0];
-	double d1 = first[1] - second[1];
-	double d2 = first[2] - second[2];
+	double distance = 0;
 
-    double differences = d0 * d0 + d1 * d1 + d2 * d2;
-    return sqrt(differences);
+	for(int r = 0; r < a.rows; r++)
+	{
+		const Vec3b *firstPtr = a.ptr<Vec3b>(r);
+		const Vec3b *secondPtr = b.ptr<Vec3b>(r);
+		for(int c = 0; c < a.cols; c++)
+		{
+			Vec3b first = *firstPtr;
+			Vec3b second = *secondPtr;
+
+			double d0 = first[0] - second[0];
+			double d1 = first[1] - second[1];
+			double d2 = first[2] - second[2];
+
+			double differences = d0 * d0 + d1 * d1 + d2 * d2;
+
+			distance += sqrt(differences);
+
+			firstPtr++;
+			secondPtr++;
+		}
+	}
+
+	return distance;
 }
-
 
 Mat DrawBorderFromLabels(Mat image, Mat imageLabels)
 {
@@ -773,6 +793,10 @@ int main(int argc, char *argv[])
 	Mat trainLabels;
 	Mat testImage;
 
+	//
+	// Open Images
+	//
+
 	string fileName;
 
 	if (argc == 2)
@@ -823,11 +847,10 @@ int main(int argc, char *argv[])
 
 	}
 
-    ////
+    //
     // Step 1: Compute input image fragments
-    ////
+    //
 
-    printTimeSinceLastCall("Generate Super Pixels");
 
 	Mat testLabels;
 
@@ -840,59 +863,60 @@ int main(int argc, char *argv[])
 			50,
 			0.005);
 
+    printTimeSinceLastCall("Generate Super Pixels");
 
-    // Utility: shows the superpixels formed on the image.
+	UTILITY
+	{
+		// Shows the superpixels formed on the image.
+		Mat showMeThePixels = DrawBorderFromLabels(testImage, testLabels);
+		cv::imshow("w", showMeThePixels);
+		cv::waitKey(0);
+	}
 
-    // Mat showMeThePixels = DrawBorderFromLabels(testImage, testLabels);
-    // cv::imshow("w", showMeThePixels);
-    // cv::waitKey(0);
+	
+	//
+	// Step 2: Select test and train patches
+	//
 
-    ////
-    // Step 2 + 3 combined, see RandomPatchesForEachLabel
-    ////
-
-    printTimeSinceLastCall("Random patches test");
 
 	DecreaseImageContrast(testImage, 2);
     vector<vector<Rect>> testPatches = RandomPatchesForEachLabel(testImage, testLabels);
 
-    // Utility: show the chosen patches.
+    printTimeSinceLastCall("Random patches test");
 
-    // if called as VisualizePatches( , ) will show all patches,
-    // if called as VisualizePatches( , , l) will show chosen for label l.
+	UTILITY
+	{
+		// Show the chosen patches.
 
-    // Mat vizTestPatch = VisualizePatches(testImage, testPatches, 200);
-    // cv::imshow("w", vizTestPatch);
-    // cv::waitKey(0);
+    	Mat vizTestPatch = VisualizePatches(testImage, testPatches, -1);
+    	cv::imshow("w", vizTestPatch);
+    	cv::waitKey(0);
+	}
+
+	DecreaseImageContrast(trainImage, 2);
+	const bool innerPatchesOnly = true;
+    vector<vector<Rect>> trainPatches = RandomPatchesForEachLabel(trainImage, trainLabels, innerPatchesOnly);
 
     printTimeSinceLastCall("Random patches train");
 
-    // Patches for the training image
-	DecreaseImageContrast(trainImage, 2);
-    vector<vector<Rect>> trainPatches = RandomPatchesForEachLabel(trainImage, trainLabels);
+	UTILITY
+	{
+		for (int i = -1; i < 5; i++) {
+			Mat vizTrainPatch = VisualizePatches(trainImage, trainPatches, i);
+			cv::imshow("w", vizTrainPatch);
+			cv::waitKey(0);
+		}
+	}
 
-	// for (int i = -1; i < 5; i++) {
-	// 	Mat vizTrainPatch = VisualizePatches(trainImage, trainPatches, i);
-	// 	cv::imshow("w", vizTrainPatch);
-	// 	cv::waitKey(0);
-	// }
-
-    ////
-    // Step 3
-    ////
+	//
+	// Step 3: Calculate distances between fragments and labels
+	//
 
     // Calulation of color difference for patches.
     // We use the CIE76 method to do this (CIE 1976)
 
-    Mat trainImageLab{trainImage.size(), CV_8UC3};
-    Mat testImageLab{testImage.size(), CV_8UC3};
-
-    // Test patch, Color, the according distances
-
-    // TODO: look at this. Just trying things out and hoping for the best...
-    // testImage = SubtructFregmentAverageColor(testImage, testLabels);
-    // trainImage = SubtructFregmentAverageColor(trainImage, trainLabels);
-
+    Mat trainImageLab;
+    Mat testImageLab;
     cvtColor(trainImage, trainImageLab, CV_BGR2Lab);
     cvtColor(testImage, testImageLab, CV_BGR2Lab);
 
@@ -904,12 +928,9 @@ int main(int argc, char *argv[])
     // For each one of them, we go through all the test patches in the fragment.
     // For each patch, we go through each color.
     // For each color, we go through the corasponding patches of this color.
-    // Then we just calculate the distance using the CIE76 algorithem.
+    // Then we just calculate the distance using the CIE76 algorithm.
     // We choose to calculate here and not in a different function
     // in order to save on moving Mat object around.
-
-    // TODO: maybe just make a function with Mat by reference?
-    // & then everything will look better...
 
     vector<vector<vector<double>>> distancePerPixel(testPatches.size(), vector<vector<double>>(trainPatches.size()));
 
@@ -923,19 +944,11 @@ int main(int argc, char *argv[])
 
                 for(Rect trainSquare : trainPatches[j])
                 {
-                    double currenPatchDistance = 0;
-                    for(int x = 0; x < sideLength; x++)
+                    double currentPatchDistance = PatchDistance(Mat{trainImageLab, trainSquare}, Mat{testImageLab, testSquare});
+
+                    if(currentPatchDistance < smallestColorDistance)
                     {
-                        for(int y = 0; y < sideLength; y++)
-                        {
-                            Vec3b trainPixel = trainImageLab.at<Vec3b>(trainSquare.x + x, trainSquare.y + y);
-                            Vec3b testPixel = testImageLab.at<Vec3b>(testSquare.x + x, testSquare.y + y);
-                            currenPatchDistance += Cie76Compare(trainPixel, testPixel);
-                        }
-                    }
-                    if(currenPatchDistance < smallestColorDistance)
-                    {
-                        smallestColorDistance = currenPatchDistance;
+                        smallestColorDistance = currentPatchDistance;
                     }
                 }
                 distancePerPixel[i][j].push_back(smallestColorDistance);
@@ -1208,21 +1221,3 @@ int main(int argc, char *argv[])
 
     return 0;
 }
-
-//    // Proves it works
-//     for(int i = 0; i < testImage.rows; i++)
-//     {
-//         for(int j = 0; j < testImage.cols; j++)
-//         {
-//             cout << labled.at<int>(i , j) << endl;
-//         }
-//     }
-
-//     Mat labled = Mat::zeros(cv::Size(640, 480), CV_8U);
-//     for(int i = 0; i < labled.rows; i++)
-//     {
-//         for(int j = 0; j < labled.cols; j++)
-//         {
-//             labled.at<uchar>(i , j) = label[i * labled.cols + j];
-//         }
-//     }

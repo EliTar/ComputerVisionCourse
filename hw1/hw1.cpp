@@ -1028,10 +1028,9 @@ int main(int argc, char *argv[])
     // cvtColor(testImage, testImageLab, CV_Lab2BGR);
 
     Mat avgColoredImage = PaintInAverageColor(testImage, testLabels);
-    Mat countVotingsForPixel = Mat::zeros(avgColoredImage.size(), CV_8U);
-    Mat finalLabeling = Mat::zeros(avgColoredImage.size(), CV_8U);
 
     vector<Mat> foregroundImages(trainPatches.size());
+    vector<vector<vector<int>>> pixelVotes(avgColoredImage.rows, vector<vector<int>>(avgColoredImage.cols) );
 
     for(int labelNumber = 0; labelNumber < (int)trainPatches.size(); labelNumber++)
     {
@@ -1081,8 +1080,7 @@ int main(int argc, char *argv[])
                 {
                     if(grabCutMask.at<uchar>(i, j) == 255)
                     {
-                        finalLabeling.at<uchar>(i, j) = labelNumber;
-                        countVotingsForPixel.at<uchar>(i, j)++;
+                        pixelVotes[i][j].push_back(labelNumber);
                     }
                 }
             }
@@ -1093,12 +1091,13 @@ int main(int argc, char *argv[])
             foregroundImages[labelNumber].row(avgColoredImage.rows / 2).setTo(Vec3b(0,0,255));
         }
 
-
         // Mat finalVizi = PaintLabelsTrainImage(finalLabeling);
         // imshow("w", finalVizi);
         // imshow("ww", grabCutMask);
         // cv::waitKey(0);
     }
+
+    Mat finalLabeling = Mat::zeros(avgColoredImage.size(), CV_8U);
 
     printTimeSinceLastCall("Final Labeling");
 
@@ -1106,10 +1105,27 @@ int main(int argc, char *argv[])
     {
         for(int j = 0; j < avgColoredImage.cols; j++)
         {
-            if(countVotingsForPixel.at<uchar>(i, j) != 1)
+            if(pixelVotes[i][j].size() == 0)
             {
                 int index = 0;
                 for(int k = 0; k < (int)trainPatches.size(); k++)
+                {
+                    if( normalizedFregmentColorDistance[testLabels.at<int>(i, j)][k] <
+                        normalizedFregmentColorDistance[testLabels.at<int>(i, j)][index] )
+                        {
+                            index = k;
+                        }
+                }
+                finalLabeling.at<uchar>(i, j) = index;
+            }
+            else if(pixelVotes[i][j].size() == 1)
+            {
+                finalLabeling.at<uchar>(i, j) = pixelVotes[i][j][0];
+            }
+            else
+            {
+                int index = pixelVotes[i][j][0];
+                for(int k : pixelVotes[i][j])
                 {
                     if( normalizedFregmentColorDistance[testLabels.at<int>(i, j)][k] <
                         normalizedFregmentColorDistance[testLabels.at<int>(i, j)][index] )

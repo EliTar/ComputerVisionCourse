@@ -513,8 +513,6 @@ Mat PaintInAverageColor(Mat image, Mat imageLabels)
 
 vector<vector<Rect>> RandomPatchesForEachLabel(Mat image, Mat imageLabels)
 {
-    // Defining some usful constants,
-    // finding the minimum and maximum values of the labeling.
     imageLabels.convertTo(imageLabels, CV_32S);
 
     const int   imageRows = image.rows,
@@ -522,37 +520,58 @@ vector<vector<Rect>> RandomPatchesForEachLabel(Mat image, Mat imageLabels)
     double      maxLabel,
                 minLabel;
 
+    // finding the minimum and maximum values of the labeling.
     minMaxLoc(imageLabels, &minLabel, &maxLabel);
+    int sideLength = 2 * patchRadius + 1;
 
     ////
     // Step 2: Choose several random pixels for each fregment
     ////
 
-    // First, we calculate how many pixels each label has.
-    // We do this to know how many repesentatives we should pick for each label.
-
-    // axis shceme for the image, we choose this because of OpenCV's "at" function.
-
-    // -x
-    // ^
-    // |
-    // |
-    // |
-    // ------> y
+	//
+	// We build a list of the pixels of each label
+	//
 
     vector<vector<Point>> pixelsByLabel(maxLabel + 1);
+	vector<int> pixelCountByLabel(maxLabel + 1, 0);
 
-    for(int i = 0; i < imageRows; i++)
+	//
+	// To be eligble for participation in the pixel loterry, pixels have to:
+	//
+	// 1) 18 years old or older
+	// 2) Be further than patchRadius from image boundary
+	// 3) Not be on the edge between segments
+	//
+
+    for(int i = patchRadius; i < imageRows - patchRadius; i++)
     {
-        for(int j = 0; j < imageCols; j++)
+        for(int j = patchRadius; j < imageCols - patchRadius; j++)
         {
-            pixelsByLabel[imageLabels.at<int>(i , j)].push_back(Point(i, j));
+			Point p{j, i};
+
+			Point c1{j - patchRadius, i - patchRadius};
+			Point c2{j - patchRadius, i + patchRadius};
+			Point c3{j + patchRadius, i - patchRadius};
+			Point c4{j + patchRadius, i + patchRadius};
+
+			bool innerPatch = imageLabels.at<int>(p) == imageLabels.at<int>(c1) &&
+					imageLabels.at<int>(p) == imageLabels.at<int>(c2) &&
+					imageLabels.at<int>(p) == imageLabels.at<int>(c3) &&
+					imageLabels.at<int>(p) == imageLabels.at<int>(c4);
+
+			int label = imageLabels.at<int>(i , j);
+
+			if (innerPatch)
+			{
+				pixelsByLabel[label].push_back(Point(i, j));
+			}
+			pixelCountByLabel[label]++;
         }
     }
 
     std::random_device rd;
     std::mt19937 gen(rd());
-    vector<vector<Point>> patchRepresentatives(maxLabel + 1);
+    vector<vector<Rect>> patches(maxLabel + 1);
 
 	auto sampleCount = [](int pixelCount) {
 		return round(sqrt(pixelCount) / 2);
@@ -561,54 +580,26 @@ vector<vector<Rect>> RandomPatchesForEachLabel(Mat image, Mat imageLabels)
     for(int i = minLabel; i < maxLabel + 1; i++)
     {
         int currentSize = pixelsByLabel[i].size();
-        int toChoose = sampleCount(currentSize);
+
+		if (currentSize == 0)
+			continue;
+
+        int toChoose = sampleCount(pixelCountByLabel[i]);
         std::uniform_int_distribution<> dis(0, currentSize - 1);
 
         for(int j = 0; j < toChoose; j++)
         {
-			Point selectedPixel = pixelsByLabel[i][dis(gen)];
-            patchRepresentatives[i].push_back(selectedPixel);
+			Point p = pixelsByLabel[i][dis(gen)];
+			Rect patchRect{p.x - patchRadius, p.y - patchRadius, sideLength, sideLength};
+            patches[i].push_back(patchRect);
         }
     }
 
-    ////
-    // Step 3: Determine patches, search for closets patch in the example image.
-    ////
-
-    // We have to maintain the same size for all patches,
-    // therefore, if one patch exceeds the image limits,
-    // we will just ignore it.
-
-    // Rect is defined by its top left corner (x, y), width and height
-    // (x,y) ------
-    // |
-    // |
-    // |
-    // |
-    // |
-
-    int sideLength = 2 * patchRadius + 1;
-    vector<vector<Rect>> patches(maxLabel + 1);
-
-    for(int i = minLabel; i < maxLabel + 1; i++)
-    {
-        for(Point p : patchRepresentatives[i])
-        {
-            if( p.x - patchRadius >= 0 &&
-				p.y - patchRadius >= 0 &&
-				p.x + patchRadius < image.rows &&
-				p.y + patchRadius < image.cols)
-            {
-                patches[i].push_back(Rect(p.x - patchRadius, p.y - patchRadius, sideLength, sideLength));
-            }
-        }
-    }
-
-    return patches;
+	return patches;
 }
 
 // TODO: Check this function!!! likes to give exeptions. maybe its Vec3b?
-// Fixed. Probalby the problem was with acssesing outside the matrix...
+// Fixed. Probably the problem was with acssesing outside the matrix...
 
 Mat VisualizePatches(Mat image, vector<vector<Rect>> patches, int patchLabel = -1)
 {
@@ -754,9 +745,25 @@ Mat LoadImageWithSomeExtension(string basePath, int flags = cv::IMREAD_COLOR)
 			return image;
 	}
 
-	std::cerr << "ERROR: Couldn't open file " + basePath << endl;
-	std::cerr << "Please make sure it is there with the correct extension" << endl;
+	std::cerr << endl;
+	std::cerr << "\tERROR: Couldn't open file " + basePath << endl;
+	std::cerr << "\tPlease make sure it is there with the correct extension" << endl;
 	std::exit(-1);
+}
+
+void DecreaseImageContrast(Mat &image, int by = 2)
+{
+	cv::cvtColor(image, image, cv::COLOR_BGR2HSV);
+
+	for (int r = 0; r < image.rows; r++) {
+		for (int c = 0; c < image.cols; c++) {
+			Vec3b color = image.at<Vec3b>(r, c);
+			color[2] = 128 + (color[2] - 128) / by;
+			image.at<Vec3b>(r, c) = color;
+		}
+	}
+
+	cv::cvtColor(image, image, cv::COLOR_HSV2BGR);
 }
 
 int main(int argc, char *argv[])
@@ -811,6 +818,7 @@ int main(int argc, char *argv[])
 
     printTimeSinceLastCall("Random patches test");
 
+	DecreaseImageContrast(testImage, 2);
     vector<vector<Rect>> testPatches = RandomPatchesForEachLabel(testImage, testLabels);
 
     // Utility: show the chosen patches.
@@ -825,11 +833,14 @@ int main(int argc, char *argv[])
     printTimeSinceLastCall("Random patches train");
 
     // Patches for the training image
+	DecreaseImageContrast(trainImage, 2);
     vector<vector<Rect>> trainPatches = RandomPatchesForEachLabel(trainImage, trainLabels);
 
-    // Mat vizTrainPatch = VisualizePatches(trainImage, trainPatches);
-    // cv::imshow("w", vizTrainPatch);
-    // cv::waitKey(0);
+	for (int i = -1; i < 5; i++) {
+		Mat vizTrainPatch = VisualizePatches(trainImage, trainPatches, i);
+		cv::imshow("w", vizTrainPatch);
+		cv::waitKey(0);
+	}
 
     ////
     // Step 3
@@ -1063,7 +1074,7 @@ int main(int argc, char *argv[])
         int totalPixels = avgColoredImage.cols * avgColoredImage.rows;
 
         // TODO: is this a good thrshold?
-        if(pixelsAssignedToLabel < 0.8 * totalPixels)
+        if(pixelsAssignedToLabel < 0.95 * totalPixels)
         {
             for(int i = 0; i < avgColoredImage.rows; i++)
             {

@@ -358,6 +358,7 @@ Mat drawBoarderFromLabels(Mat image, Mat imageLabels)
 
 Mat subtructFregmentAverageColor(Mat image, Mat imageLabels)
 {
+    imageLabels.convertTo(imageLabels, CV_32S);
     Mat newImage = Mat::zeros(cv::Size(image.cols, image.rows), CV_8UC3);
 
     const int   imageRows = image.rows,
@@ -383,13 +384,19 @@ Mat subtructFregmentAverageColor(Mat image, Mat imageLabels)
 
     for(int i = 0; i < pixelsLabeledPoints.size(); i++)
     {
-        int fregmentAverage = (int) (accumulate( pixelsLabeledValues[i].begin(), pixelsLabeledValues[i].end(), 0.0) / pixelsLabeledValues[i].size() );
+        int fregmentAverage = (int) (accumulate( pixelsLabeledValues[i].begin(), pixelsLabeledValues[i].end(), 0.0) / (pixelsLabeledValues[i].size() * 3) );
         for(Point p : pixelsLabeledPoints[i])
         {
             Vec3b currentColor = image.at<Vec3b>(p.x , p.y);
             int a = currentColor[0] - fregmentAverage;
             int b = currentColor[1] - fregmentAverage;
             int c = currentColor[2] - fregmentAverage;
+            if(a < 0)
+                a = 0;
+            if(b < 0)
+                b = 0;
+            if(c < 0)
+                c = 0;
             newImage.at<Vec3b>(p.x , p.y) = Vec3b(a, b, c);
         }
     }
@@ -545,8 +552,18 @@ int main(int argc, char *argv[])
 
     printTimeSinceLastCall("Calculate patch distances");
 
-    // The calculation of the distance of each patch to each of the labels.
-    //
+    // The calculation of the distances of each patch to each of the labels.
+    // Yes, we know the for loops look a bit too much complex - but they are very logical.
+    // We iterate on each fragment.
+    // For each one of them, we go through all the test patches in the fragment.
+    // For each patch, we go through each color.
+    // For each color, we go through the corasponding patches of this color.
+    // Then we just calculate the distance using the CIE76 algorithem.
+    // We choose to calculate here and not in a different function
+    // in order to save on moving Mat object around.
+
+    // TODO: maybe jsut make a function with Mat by reference?
+    // & then everything will look better...
 
     vector<vector<vector<double>>> distancePerPixel(testPatches.size(), vector<vector<double>>(trainPatches.size()));
 
@@ -584,12 +601,14 @@ int main(int argc, char *argv[])
 
     printTimeSinceLastCall("Calculate fregment distances");
 
+    // Choose the median value of all minimum distances.
+    // A robust voting scheme as explaind in the article.
+
     vector<vector<double>> fragmentDistance(testPatches.size(), vector<double>(trainPatches.size()));
     for(int i = 0; i < testPatches.size(); i++)
     {
         for(int j = 0; j < trainPatches.size(); j++)
         {
-            // Choose the median value of all minimum distances
             // TODO: Check this! sometimes when = 0, segmentation fault. fuck!
             if(distancePerPixel[i][j].size() != 0)
             {
@@ -605,7 +624,10 @@ int main(int argc, char *argv[])
 
     printTimeSinceLastCall("Normalize Distances");
 
-    // Normalize
+    // Normalize.
+    // We normalize each fragment distace to the rang of 0 -> 1
+    // as asked in the assigment.
+
     double  maxVal = -1,
             minVal = DBL_MAX;
 
@@ -637,7 +659,16 @@ int main(int argc, char *argv[])
 
     printTimeSinceLastCall("Normalize each fregment distance");
 
-    // Normalize each fragment distance
+    // Normalize each fragment distance.
+    // After a discussion with Hagit and test we've made,
+    // we found out that normalizing each of those distances as well,
+    // in the range of the maximum and minimum distances of the particular fragment
+    // gives better results.
+    // It is logical when we consider the grab cut algorithem -
+    // it's much more logical for the algorithem to have a more relevant view of each distance -
+    // meaning, if a certain distance is 0.1 it makes a big difference if it's normalized
+    // globally or locally, patch-wise.
+
 
     for(int i = 0; i < testPatches.size(); i++)
     {
@@ -684,6 +715,8 @@ int main(int argc, char *argv[])
     ////
     // Step 4: we now have the mapping! huryy!!!!
     ////
+
+    // cvtColor(testImage, testImageLab, CV_Lab2BGR);
 
     Mat avgColoredImage = PaintInAverageColor(testImage, labeledImage);
     Mat countVotingsForPixel = Mat::zeros(cv::Size(avgColoredImage.cols, avgColoredImage.rows), CV_8U);

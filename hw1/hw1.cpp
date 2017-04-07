@@ -2,26 +2,45 @@
 #include <vector>
 #include <random>
 
-#include "slic.h"
-
 #include <opencv2/opencv.hpp>
 
+typedef int8_t s8;
+typedef int16_t s16;
+typedef int32_t s32;
 typedef int64_t s64;
 
-using std::cout;
-using std::endl;
+typedef uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
 
 using std::vector;
 using std::string;
+using std::cout;
+using std::endl;
 
 using cv::imshow;
 using cv::imread;
+
 using cv::Mat;
 using cv::Scalar;
 using cv::Point;
 using cv::Rect;
+using cv::Range;
 using cv::Vec3b;
 using cv::Size;
+using cv::InputArray;
+using cv::OutputArray;
+
+using cv::Point2f;
+using cv::Point2i;
+using cv::Point3f;
+using cv::Vec3f;
+using cv::Mat1i;
+using cv::Mat1f;
+using cv::Mat1b;
+using cv::Mat3b;
+using cv::Mat3f;
 
 const int patchRadius = 3;
 const int sideLength = 2 * patchRadius + 1;
@@ -40,6 +59,317 @@ void printTimeSinceLastCall(const char* message)
 	printf("%s: %.2f\n", message, deltaSeconds);
 
 	last = curr;
+}
+
+//
+// SLIC Super Pixels Code
+//
+
+void VisualizeSuperPixels(
+		const Mat &labels,
+		Mat &dst,
+		const vector<Vec3b> &colors,
+		const vector<Point2i> &centers,
+		bool showEdges = false,
+		bool showCenters = true)
+{
+	CV_Assert(labels.type() == CV_32S);
+
+	dst.create(labels.size(), CV_8UC3);
+	auto labelIt = labels.begin<s32>();
+	auto dstIt = dst.begin<cv::Vec3b>();
+
+	auto labelEnd = labels.end<s32>();
+
+	while (labelIt != labelEnd) {
+		*dstIt = colors[*labelIt];
+
+		labelIt++;
+		dstIt++;
+	}
+
+	if (showEdges) {
+		Mat1b edges{labels.size()};
+
+		edges.setTo(0);
+
+		for (int r = 0; r < labels.rows - 1; r++) {
+			for (int c = 0; c < labels.cols - 1; c++) {
+				int curr = labels.at<s32>(r, c);
+				int right = labels.at<s32>(r, c + 1);
+				int down = labels.at<s32>(r + 1, c);
+
+				if (curr != right || curr != down) {
+					edges(r, c) = 255;
+				}
+			}
+		}
+
+		dst.setTo(255, edges);
+	}
+
+	if (showCenters) {
+		for (Point2i point : centers) {
+			cv::circle(dst, point, 2, Scalar{0, 0, 0}, -1);
+		}
+	}
+}
+
+void SegmentSuperPixelsSLIC(
+		InputArray _imgBGR,
+		OutputArray _dst,
+		vector<Point2i> *outKernelPositions,
+		vector<Vec3b> *outKernelColors,
+		int regionSize,
+		float smoothness,
+		float stopLimit = 0.01)
+{
+	CV_Assert(_imgBGR.type() == CV_8UC3);
+	Mat3b imgBGR = _imgBGR.getMat();
+	Mat3b imgLAB;
+	cv::cvtColor(imgBGR, imgLAB, cv::COLOR_BGR2Lab);
+
+	vector<Point2i> kernelPosition;
+	vector<Vec3b> kernelColor;
+	vector<Vec3b> kernelColorBGR;
+
+	int rows = imgLAB.rows;
+	int cols = imgLAB.cols;
+
+	int N = rows * cols;
+	int S = regionSize;
+
+	//
+	// Place initial kernels
+	//
+
+	{
+		int paddingY = ((rows - 1) % S) / 2;
+		int paddingX = ((cols - 1) % S) / 2;
+
+		for (int y = paddingY; y < rows; y += S) {
+			for (int x = paddingX; x < cols; x += S) {
+				kernelPosition.push_back(Point2i{x, y});
+				kernelColor.push_back(imgLAB(y, x));
+			}
+		}
+	}
+
+	cv::Mat3f colors;
+	imgLAB.convertTo(colors, CV_32FC3);
+
+	Mat1i segment{imgLAB.size()};
+	Mat1f minDistance{imgLAB.size()};
+	Mat display;
+
+	int residualError = INT_MAX;
+
+	while (residualError > stopLimit * S * kernelPosition.size()) {
+		segment.setTo(-1);
+		minDistance.setTo(rows * cols);
+		residualError = 0;
+
+		//
+		// Assign each pixel to closest kernelPosition
+		//
+
+		for (unsigned int i = 0; i < kernelPosition.size(); i++) {
+			Point2i kPosition{kernelPosition[i]};
+			Point3f kColor{kernelColor[i]};
+
+			Range rowRange{std::max(kPosition.y - S, 0), std::min(kPosition.y + S, rows)};
+			Range colRange{std::max(kPosition.x - S, 0), std::min(kPosition.x + S, cols)};
+
+			Mat rectColor{colors, rowRange, colRange};
+			Mat1i rectSegment{segment, rowRange, colRange};
+			Mat1f rectDistance{minDistance, rowRange, colRange};
+
+			for (int r = 0; r < rectColor.rows; r++) {
+				Vec3f *colorPtr = rectColor.ptr<cv::Vec3f>(r);
+				float *distancePtr = rectDistance.ptr<float>(r);
+				int *segmentPtr = rectSegment.ptr<int>(r);
+
+				for (int c = 0; c < rectColor.cols; c++) {
+					Vec3f pixelColor = *colorPtr;
+					float currDist = 0;
+
+					{
+						float dx = pixelColor[0] - kColor.x;
+						float dy = pixelColor[1] - kColor.y;
+						float dz = pixelColor[2] - kColor.z;
+
+						currDist += std::sqrt(dx * dx + dy * dy + dz * dz);
+					}
+
+					{
+						float dx = c - S;
+						float dy = r - S;
+
+						currDist += smoothness / S * std::sqrt(dx * dx + dy * dy);
+					}
+
+					if (currDist < *distancePtr) {
+						*distancePtr = currDist;
+						*segmentPtr = i;
+					}
+
+					colorPtr++;
+					distancePtr++;
+					segmentPtr++;
+				}
+			}
+		}
+
+		//
+		// Set each kernel position to the average of its pixels
+		//
+
+		for (unsigned int i = 0; i < kernelPosition.size(); i++) {
+			Point2i kPosition = kernelPosition[i];
+			Point3f kColor{kernelColor[i]};
+
+			Range rowRange{std::max(kPosition.y - S, 0), std::min(kPosition.y + S + 1, rows)};
+			Range colRange{std::max(kPosition.x - S, 0), std::min(kPosition.x + S + 1, cols)};
+
+			Mat rectColor{colors, rowRange, colRange};
+			Mat1i rectSegment{segment, rowRange, colRange};
+
+			Point2f newPosition{0, 0};
+			Point3f newColor{0, 0, 0};
+
+			int count = 0;
+
+			for (int r = 0; r < rectColor.rows; r++) {
+				int *segmentPtr = rectSegment.ptr<int>(r);
+				Point3f *colorPtr = rectColor.ptr<Point3f>(r);
+
+				for (int c = 0; c < rectColor.cols; c++) {
+					if (*segmentPtr == (int)i) {
+						newPosition.x += c;
+						newPosition.y += r;
+						newColor += *colorPtr;
+
+						count++;
+					}
+					segmentPtr++;
+					colorPtr++;
+				}
+			}
+
+			if (count > 0) {
+				newPosition /= count;
+				newColor /= count;
+
+				Point2i lastPosition = kPosition;
+				kernelPosition[i] = newPosition + Point2f{(float)colRange.start, (float)rowRange.start};
+				kernelColor[i] = Vec3b{(u8)(newColor.x + 0.5f), (u8)(newColor.y + 0.5f), (u8)(newColor.z + 0.5f)};
+
+				residualError += std::abs(kernelPosition[i].x - lastPosition.x) + std::abs(kernelPosition[i].y - lastPosition.y);
+			}
+		}
+
+		cv::cvtColor(kernelColor, kernelColorBGR, cv::COLOR_Lab2BGR);
+		VisualizeSuperPixels(segment, display, kernelColorBGR, kernelPosition);
+		cv::imshow("Super Pixels", display);
+		cv::waitKey(1);
+	}
+
+	//
+	// Enforce pixel connectivity
+	//
+
+	Mat1i connectedSegment{imgLAB.size()};
+
+	{
+		connectedSegment.setTo(0);
+
+		//
+		// Add the biggest connected componnent of each super pixel
+		//
+
+		for (unsigned int i = 0; i < kernelPosition.size(); i++) {
+			Point2i kPosition{kernelPosition[i]};
+			Point3f kColor{kernelColor[i]};
+
+			Range rowRange{std::max(kPosition.y - S, 0), std::min(kPosition.y + S, rows)};
+			Range colRange{std::max(kPosition.x - S, 0), std::min(kPosition.x + S, cols)};
+
+			Mat1i rectSegment{segment, rowRange, colRange};
+			Mat1i rectConnectedSegment{connectedSegment, rowRange, colRange};
+			Mat1b cluster = (rectSegment == i);
+
+			Mat1i ccLabels;
+			Mat1i ccStats;
+			Mat _centroids;
+
+			int ccCount = cv::connectedComponentsWithStats(cluster, ccLabels, ccStats, _centroids, 4, CV_32S);
+
+			if (ccCount > 1) {
+				int biggestCC = -1;
+				int biggestCCSize = 0;
+
+				for (int c = 1; c < ccCount; c++) {
+					int currArea = ccStats(c, cv::CC_STAT_AREA);
+					if (currArea > biggestCCSize) {
+						biggestCC = c;
+						biggestCCSize = currArea;
+					}
+				}
+
+				Mat1b biggestCCMask = (ccLabels == biggestCC);
+
+				cv::add(rectConnectedSegment, i + 1, rectConnectedSegment, biggestCCMask);
+			}
+		}
+
+		//
+		// Merge each of remaining pixels with its closest CC
+		//
+
+		Mat1i distanceLabels;
+		Mat1b holes = (connectedSegment == 0);
+		Mat _dist;
+
+		cv::distanceTransform(
+				holes,
+				_dist,
+				distanceLabels,
+				cv::DIST_L2,
+				3,
+				cv::DIST_LABEL_PIXEL);
+
+		Mat1i labelDict{1, N};
+
+		for (int r = 0; r < rows; r++) {
+			for (int c = 0; c < cols; c++) {
+				if (holes(r, c) == 0) {
+					labelDict(distanceLabels(r, c)) = segment(r, c);
+				}
+			}
+		}
+
+		for (int r = 0; r < rows; r++) {
+			for (int c = 0; c < cols; c++) {
+				connectedSegment(r, c) = labelDict(distanceLabels(r, c));
+			}
+		}
+	}
+
+	connectedSegment.copyTo(_dst);
+
+	if (outKernelPositions) {
+		*outKernelPositions = kernelPosition;
+	}
+
+	if (outKernelColors) {
+		cv::cvtColor(kernelColor, kernelColorBGR, cv::COLOR_Lab2BGR);
+		*outKernelColors = kernelColorBGR;
+	}
+
+	cv::cvtColor(kernelColor, kernelColorBGR, cv::COLOR_Lab2BGR);
+	VisualizeSuperPixels(connectedSegment, display, kernelColorBGR, kernelPosition, true, false);
+	cv::imshow("Super Pixels", display);
+	cv::waitKey(1);
 }
 
 Vec3b ConvertLabelToColor(int label)
@@ -397,13 +727,15 @@ Mat SubtructFregmentAverageColor(Mat image, Mat imageLabels)
 
 void Usage()
 {
-    std::cout << "\n Usage: hw1 [FILE_NAME]\n"
-	      << '\n'
-	      << "Please make sure you have the following files in the images folder:\n"
-	      << "\"[FILE_NAME]_train\" \"[FILE_NAME]_test\" with .jpg or .tif endings.\n"
-          << "Also, \"[FILE_NAME]_train_labels.tif\" should be placed there.\n"
-          << "Good luck!\n"
-          << endl;
+	const char *message =
+R"msg(
+	Usage: hw1 [FILE_NAME]
+	Please make sure you have the following files in the ../images folder:
+	"[FILE_NAME]_train", "[FILE_NAME]_test" and "[FILE_NAME]_train_labels"
+	with .jpg, .tif or .png endings.
+	Good luck!
+)msg";
+	cout << message << endl;
 }
 
 Mat LoadImageWithSomeExtension(string basePath, int flags = cv::IMREAD_COLOR)
@@ -449,34 +781,23 @@ int main(int argc, char *argv[])
     Mat trainLabels = LoadImageWithSomeExtension(trainLabelsPath, CV_LOAD_IMAGE_GRAYSCALE);
     Mat testImage = LoadImageWithSomeExtension(testImagePath);
 
-    SLIC slic;
-    int estSuperpixelsNum = 1000;
-
     ////
     // Step 1: Compute input image fragments
     ////
 
-    // Find the Super Pixels in the image. The parameter is defined above
-    // The GetLabel method gives us 1-dim array with the pixel laybeling.
-
     printTimeSinceLastCall("Generate Super Pixels");
 
-    slic.GenerateSuperpixels(testImage, estSuperpixelsNum);
-    Mat superPixels = slic.GetImgWithContours(Scalar(0, 0, 255));
-    int* label = slic.GetLabel();
+	Mat testLabels;
 
-    // Translation of the array into a Mat object, the same size as the image
-    // only with label number insted of pixel values.
+	SegmentSuperPixelsSLIC(
+			testImage,
+			testLabels,
+			nullptr,
+			nullptr,
+			25,
+			50,
+			0.005);
 
-	Mat testLabels{testImage.size(), CV_32S};
-
-    for(int r = 0; r < testLabels.rows; r++)
-    {
-        for(int c = 0; c < testLabels.cols; c++)
-        {
-            testLabels.at<int>(r , c) = label[r * testLabels.cols + c];
-        }
-    }
 
     // Utility: shows the superpixels formed on the image.
 

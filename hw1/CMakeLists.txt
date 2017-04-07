@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
-add_executable(hw1 hw1.cpp slic.cpp)
+add_executable(hw1 hw1.cpp)
 target_link_libraries(hw1 ${OpenCV_LIBS})
 
 if (CMAKE_COMPILER_IS_GNUCC)

@@ -748,10 +748,8 @@ Mat LoadImageWithSomeExtension(string basePath, int flags = cv::IMREAD_COLOR)
 			return image;
 	}
 
-	std::cerr << endl;
-	std::cerr << "\tERROR: Couldn't open file " + basePath << endl;
-	std::cerr << "\tPlease make sure it is there with the correct extension" << endl;
-	std::exit(-1);
+	return Mat{};
+
 }
 
 void DecreaseImageContrast(Mat &image, int by = 2)
@@ -771,23 +769,59 @@ void DecreaseImageContrast(Mat &image, int by = 2)
 
 int main(int argc, char *argv[])
 {
-    if (argc != 2)
-    {
-		Usage();
-		return 1;
-    }
+	Mat trainImage;
+	Mat trainLabels;
+	Mat testImage;
 
-	string fileName = string{argv[1]};
+	string fileName;
 
-    string folder = "../images/";
+	if (argc == 2)
+	{
+		fileName = string{argv[1]};
+	}
 
-    string trainImagePath = folder + fileName + "_train";
-    string trainLabelsPath = folder + fileName + "_train_labels";
-    string testImagePath = folder + fileName + "_test";
+	bool openedImages = false;
 
-    Mat trainImage = LoadImageWithSomeExtension(trainImagePath);
-    Mat trainLabels = LoadImageWithSomeExtension(trainLabelsPath, CV_LOAD_IMAGE_GRAYSCALE);
-    Mat testImage = LoadImageWithSomeExtension(testImagePath);
+	while (!openedImages)
+	{
+		if (fileName == "")
+		{
+			std::cout << std::endl;
+			std::cout << "\tEnter the basic filename: (giraffes, girl, dog, kayak, veg, zebra, ...):" << std::endl;
+			std::cout << "?> ";
+			std::cin >> fileName;
+		}
+
+		string folder = "../images/";
+
+		string trainImagePath = folder + fileName + "_train";
+		string trainLabelsPath = folder + fileName + "_train_labels";
+		string testImagePath = folder + fileName + "_test";
+
+		trainImage = LoadImageWithSomeExtension(trainImagePath);
+		trainLabels = LoadImageWithSomeExtension(trainLabelsPath, CV_LOAD_IMAGE_GRAYSCALE);
+		testImage = LoadImageWithSomeExtension(testImagePath);
+
+		if (trainImage.empty() || trainLabels.empty() || testImage.empty())
+		{
+			std::cerr << endl;
+			if (trainImage.empty())
+				std::cerr << "\tERROR: Couldn't open file " + trainImagePath << endl;
+			if (trainLabels.empty())
+				std::cerr << "\tERROR: Couldn't open file " + trainLabelsPath << endl;
+			if (testImage.empty())
+				std::cerr << "\tERROR: Couldn't open file " + testImagePath << endl;
+
+			std::cerr << "\tPlease make sure your files are there with the correct extension" << endl;
+
+			fileName = "";
+		}
+		else
+		{
+			openedImages = true;
+		}
+
+	}
 
     ////
     // Step 1: Compute input image fragments

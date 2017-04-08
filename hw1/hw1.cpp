@@ -548,7 +548,7 @@ vector<vector<Rect>> RandomPatchesForEachLabel(Mat image, Mat imageLabels, bool 
     vector<vector<Rect>> patches(maxLabel + 1);
 
 	auto sampleCount = [](int pixelCount) {
-		return round(sqrt(pixelCount) / 2);
+		return round(sqrt(pixelCount) / 2) + 5;
 	};
 
     for(int i = minLabel; i < maxLabel + 1; i++)
@@ -770,7 +770,7 @@ int main(int argc, char *argv[])
 			testLabels,
 			nullptr,
 			nullptr,
-			25,
+			20,
 			50,
 			0.005);
 

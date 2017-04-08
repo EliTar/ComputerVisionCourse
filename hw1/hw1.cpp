@@ -878,8 +878,6 @@ int main(int argc, char *argv[])
 	// Step 2: Select test and train patches
 	//
 
-
-	DecreaseImageContrast(testImage, 2);
     vector<vector<Rect>> testFragmentPatches = RandomPatchesForEachLabel(testImage, testLabels);
 
     printTimeSinceLastCall("Random patches test");
@@ -893,7 +891,6 @@ int main(int argc, char *argv[])
     	cv::waitKey(0);
 	}
 
-	DecreaseImageContrast(trainImage, 2);
 	const bool innerPatchesOnly = true;
     vector<vector<Rect>> trainPatches = RandomPatchesForEachLabel(trainImage, trainLabels, innerPatchesOnly);
 
@@ -912,24 +909,24 @@ int main(int argc, char *argv[])
 	// Step 3: Calculate distances between fragments and labels
 	//
 
-    // Calulation of color difference for patches.
-    // We use the CIE76 method to do this (CIE 1976),
-    // therfore we convert to Lab color space.
+	// We convert the images to CIELAB colorspace, because
+	// distances there better reflect human perception.
 
-    Mat trainImageLab;
-    Mat testImageLab;
-    cvtColor(trainImage, trainImageLab, CV_BGR2Lab);
-    cvtColor(testImage, testImageLab, CV_BGR2Lab);
+    Mat trainImageLab = trainImage.clone();
+    Mat testImageLab = testImage.clone();;
+
+	DecreaseImageContrast(trainImageLab, 2);
+	DecreaseImageContrast(testImageLab, 2);
+
+    cvtColor(trainImageLab, trainImageLab, CV_BGR2Lab);
+    cvtColor(testImageLab, testImageLab, CV_BGR2Lab);
 
     // The calculation of the distances of each patch to each of the labels.
-    // Yes, we know the for loops look a bit too much complex - but they are very logical.
     // We iterate on each fragment.
     // For each one of them, we go through all the test patches in the fragment.
     // For each patch, we go through each color.
     // For each color, we go through the corasponding patches of this color.
-    // Then we just calculate the distance using the CIE76 algorithm.
-    // We choose to calculate here and not in a different function
-    // in order to save on moving Mat object around.
+    // Then we just calculate the distance.
 
     vector<vector<vector<double>>> distancePerPixel(testFragmentPatches.size(), vector<vector<double>>(trainPatches.size()));
 
@@ -958,17 +955,16 @@ int main(int argc, char *argv[])
     printTimeSinceLastCall("Calculate patch distances");
 
     // Choose the median value of all minimum distances.
-    // A robust voting scheme as explaind in the article.
+    // A robust voting scheme as explaind in the paper.
 
     vector<vector<double>> fragmentDistance(testFragmentPatches.size(), vector<double>(trainPatches.size()));
+
     for(int i = 0; i < (int)testFragmentPatches.size(); i++)
     {
         for(int j = 0; j < (int)trainPatches.size(); j++)
         {
-            // TODO: Check this! sometimes when = 0, segmentation fault. fuck!
             if(distancePerPixel[i][j].size() != 0)
             {
-                // cout << distancePerPixel[i][j].size() << "i " << i << " j " << j << endl;
                 std::nth_element(   distancePerPixel[i][j].begin(),
                                     distancePerPixel[i][j].begin() + distancePerPixel[i][j].size() / 2,
                                     distancePerPixel[i][j].end());
@@ -978,10 +974,9 @@ int main(int argc, char *argv[])
         }
     }
 
-    printTimeSinceLastCall("Calculate fregment distances");
+    printTimeSinceLastCall("Calculate fragment distances");
 
-    // Normalize.
-    // We normalize each fragment distace to the rang of 0 -> 1
+    // We normalize each fragment distace to the range of [0, 1]
     // as asked in the assigment.
 
     double  maxVal = -1,
@@ -1021,27 +1016,18 @@ int main(int argc, char *argv[])
     // we found out that normalizing each of those distances as well,
     // in the range of the maximum and minimum distances of the particular fragment
     // gives better results.
-    // It is logical when we consider the grab cut algorithm -
+    // When we consider the grab cut algorithm -
     // it's much more logical for the algorithm to have a more relevant view of each distance -
     // meaning, if a certain distance is 0.1 it makes a big difference if it's normalized
     // globally or locally, patch-wise.
 
     for(int i = 0; i < (int)testFragmentPatches.size(); i++)
     {
-        maxVal = -1;
-        minVal = DBL_MAX;
+		auto &distances = normalizedFregmentColorDistance[i];
 
-        for(int j = 0; j < (int)trainPatches.size(); j++)
-        {
-            if(normalizedFregmentColorDistance[i][j] > maxVal)
-            {
-                maxVal = normalizedFregmentColorDistance[i][j];
-            }
-            if(normalizedFregmentColorDistance[i][j] < minVal)
-            {
-                minVal = normalizedFregmentColorDistance[i][j];
-            }
-        }
+		double maxVal = *std::max_element(distances.begin(), distances.end());
+		double minVal = *std::min_element(distances.begin(), distances.end());
+
         for(int j = 0; j < (int)trainPatches.size(); j++)
         {
             normalizedFregmentColorDistance[i][j] =
@@ -1052,7 +1038,6 @@ int main(int argc, char *argv[])
 
     printTimeSinceLastCall("Normalize each fregment distance");
 
-    // TODO: Andrey, look at this visuzlizations - the first one is very informative.
     UTILITY
     {
         for(int i = 0; i< (int)trainPatches.size(); i++)
@@ -1070,12 +1055,9 @@ int main(int argc, char *argv[])
         cv::waitKey(0);
     }
 
-    ////
-    // Step 4: we now have the mapping! huryy!!!!
-    ////
-
-    // TODO: check if this is neccessery?
-    // cvtColor(testImage, testImageLab, CV_Lab2BGR);
+	//
+    // Step 4: We now have the mapping! Hurray!!!!
+	//
 
     Mat avgColoredImage = PaintInAverageColor(testImage, testLabels);
 
@@ -1090,8 +1072,8 @@ int main(int argc, char *argv[])
         {
             for(int j = 0; j < avgColoredImage.cols; j++)
             {
-                double currentLable = testLabels.at<int>(i, j);
-                double currentCut = normalizedFregmentColorDistance[currentLable][labelNumber];
+                double currentLabel = testLabels.at<int>(i, j);
+                double currentCut = normalizedFregmentColorDistance[currentLabel][labelNumber];
 
                 if(currentCut < 0.05)
                     grabCutMask.at<uchar>(i, j)  = cv::GC_PR_FGD;
@@ -1103,42 +1085,28 @@ int main(int argc, char *argv[])
 
         Mat background;
         Mat foreground;
-        grabCut(avgColoredImage, grabCutMask, Rect(1, 1, 480, 640), background, foreground, 8);
-        cv::compare(grabCutMask, cv::GC_PR_FGD, grabCutMask, cv::CMP_EQ);
+
+		cv::grabCut(avgColoredImage, grabCutMask, Rect(1, 1, 64, 64), background, foreground, 8);
+		grabCutMask = (grabCutMask == cv::GC_PR_FGD);
+
         // This sets pixels that are equal to 255.
 
         string grabCutString = "Grab Cut " + std::to_string(labelNumber);
         printTimeSinceLastCall(grabCutString.c_str());
 
-        foregroundImages[labelNumber] = Mat(avgColoredImage.size(), CV_8UC3, Scalar(255,255,255));
-        avgColoredImage.copyTo(foregroundImages[labelNumber], grabCutMask);
+        foregroundImages[labelNumber] = Mat{avgColoredImage.size(), CV_8UC3, Scalar{255,255,255}};
+        testImage.copyTo(foregroundImages[labelNumber], grabCutMask);
 
-        // Sometimes label can spread on most of the picture,
-        // making all pixels decide by minimum weight insted of
-        // the help of the grabCut algorithem.
-
-        int pixelsAssignedToLabel = countNonZero(grabCutMask);
-        int totalPixels = avgColoredImage.cols * avgColoredImage.rows;
-
-        // TODO: is this a good thrshold?
-        if(pixelsAssignedToLabel < 0.95 * totalPixels)
-        {
-            for(int i = 0; i < avgColoredImage.rows; i++)
-            {
-                for(int j = 0; j < avgColoredImage.cols; j++)
-                {
-                    if(grabCutMask.at<uchar>(i, j) == 255)
-                    {
-                        pixelVotes[i][j].push_back(labelNumber);
-                    }
-                }
-            }
-        }
-        else
-        {
-            foregroundImages[labelNumber].col(avgColoredImage.cols / 2).setTo(Vec3b(0,0,255));
-            foregroundImages[labelNumber].row(avgColoredImage.rows / 2).setTo(Vec3b(0,0,255));
-        }
+		for(int i = 0; i < avgColoredImage.rows; i++)
+		{
+			for(int j = 0; j < avgColoredImage.cols; j++)
+			{
+				if(grabCutMask.at<uchar>(i, j) == 255)
+				{
+					pixelVotes[i][j].push_back(labelNumber);
+				}
+			}
+		}
     }
 
     Mat finalLabeling = Mat::zeros(avgColoredImage.size(), CV_8U);
@@ -1147,36 +1115,38 @@ int main(int argc, char *argv[])
     {
         for(int j = 0; j < avgColoredImage.cols; j++)
         {
+			int finalIndex;
+
             if(pixelVotes[i][j].size() == 0)
             {
-                int index = 0;
-                for(int k = 0; k < (int)trainPatches.size(); k++)
-                {
-                    if( normalizedFregmentColorDistance[testLabels.at<int>(i, j)][k] <
-                        normalizedFregmentColorDistance[testLabels.at<int>(i, j)][index] )
-                        {
-                            index = k;
-                        }
-                }
-                finalLabeling.at<uchar>(i, j) = index;
+				int fragment = testLabels.at<int>(i, j);
+				auto &distances = normalizedFregmentColorDistance[fragment];
+				int index = std::min_element(distances.begin(), distances.end()) - distances.begin();
+
+                finalIndex = index;
             }
             else if(pixelVotes[i][j].size() == 1)
             {
-                finalLabeling.at<uchar>(i, j) = pixelVotes[i][j][0];
+                finalIndex = pixelVotes[i][j][0];
             }
             else
             {
+				int fragment = testLabels.at<int>(i, j);
+				auto &distances = normalizedFregmentColorDistance[fragment];
+
                 int index = pixelVotes[i][j][0];
                 for(int k : pixelVotes[i][j])
                 {
-                    if( normalizedFregmentColorDistance[testLabels.at<int>(i, j)][k] <
-                        normalizedFregmentColorDistance[testLabels.at<int>(i, j)][index] )
-                        {
-                            index = k;
-                        }
+                    if (distances[k] < distances[index] )
+					{
+						index = k;
+					}
                 }
-                finalLabeling.at<uchar>(i, j) = index;
+
+				finalIndex = index;
             }
+
+			finalLabeling.at<uchar>(i, j) = finalIndex;
         }
     }
 
@@ -1189,19 +1159,11 @@ int main(int argc, char *argv[])
         imshow(windowName, foregroundImages[i]);
     }
 
-    // TODO: make sure this conversion is done.
-    //finalLabeling.convertTo(finalLabeling, CV_32S);
     Mat finalViz = PaintLabelsTrainImage(finalLabeling);
     Mat finalVizBoarder = DrawBorderFromLabels(testImage, finalLabeling);
 
     imshow("Contours", finalVizBoarder);
     imshow("Final Labeling", finalViz);
-
-    // int elementN = 4;
-    // Mat element = getStructuringElement(cv::MORPH_RECT, Size(elementN*2+1, elementN*2+1), Point(elementN, elementN));
-	// morphologyEx(finalLabeling, finalLabeling, cv::MORPH_CLOSE, element);
-    // finalVizBoarder = DrawBorderFromLabels(testImage, finalLabeling);
-    // imshow("www", finalVizBoarder);
 
     while(cv::waitKey(0) != 'q')
     { }

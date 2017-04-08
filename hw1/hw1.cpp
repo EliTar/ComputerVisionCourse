@@ -873,14 +873,14 @@ int main(int argc, char *argv[])
 		cv::waitKey(0);
 	}
 
-	
+
 	//
 	// Step 2: Select test and train patches
 	//
 
 
 	DecreaseImageContrast(testImage, 2);
-    vector<vector<Rect>> testPatches = RandomPatchesForEachLabel(testImage, testLabels);
+    vector<vector<Rect>> testFragmentPatches = RandomPatchesForEachLabel(testImage, testLabels);
 
     printTimeSinceLastCall("Random patches test");
 
@@ -888,7 +888,7 @@ int main(int argc, char *argv[])
 	{
 		// Show the chosen patches.
 
-    	Mat vizTestPatch = VisualizePatches(testImage, testPatches, -1);
+    	Mat vizTestPatch = VisualizePatches(testImage, testFragmentPatches, -1);
     	cv::imshow("w", vizTestPatch);
     	cv::waitKey(0);
 	}
@@ -913,14 +913,13 @@ int main(int argc, char *argv[])
 	//
 
     // Calulation of color difference for patches.
-    // We use the CIE76 method to do this (CIE 1976)
+    // We use the CIE76 method to do this (CIE 1976),
+    // therfore we convert to Lab color space.
 
     Mat trainImageLab;
     Mat testImageLab;
     cvtColor(trainImage, trainImageLab, CV_BGR2Lab);
     cvtColor(testImage, testImageLab, CV_BGR2Lab);
-
-    printTimeSinceLastCall("Calculate patch distances");
 
     // The calculation of the distances of each patch to each of the labels.
     // Yes, we know the for loops look a bit too much complex - but they are very logical.
@@ -932,19 +931,19 @@ int main(int argc, char *argv[])
     // We choose to calculate here and not in a different function
     // in order to save on moving Mat object around.
 
-    vector<vector<vector<double>>> distancePerPixel(testPatches.size(), vector<vector<double>>(trainPatches.size()));
+    vector<vector<vector<double>>> distancePerPixel(testFragmentPatches.size(), vector<vector<double>>(trainPatches.size()));
 
-    for(int i = 0; i < (int)testPatches.size(); i++)
+    for(int i = 0; i < (int)testFragmentPatches.size(); i++)
     {
-        for(Rect testSquare : testPatches[i])
+        for(Rect testPatch : testFragmentPatches[i])
         {
             for(int j = 0; j < (int)trainPatches.size(); j++)
             {
                 double smallestColorDistance = DBL_MAX;
 
-                for(Rect trainSquare : trainPatches[j])
+                for(Rect trainPatch : trainPatches[j])
                 {
-                    double currentPatchDistance = PatchDistance(Mat{trainImageLab, trainSquare}, Mat{testImageLab, testSquare});
+                    double currentPatchDistance = PatchDistance(Mat{trainImageLab, trainPatch}, Mat{testImageLab, testPatch});
 
                     if(currentPatchDistance < smallestColorDistance)
                     {
@@ -956,13 +955,13 @@ int main(int argc, char *argv[])
         }
     }
 
-    printTimeSinceLastCall("Calculate fregment distances");
+    printTimeSinceLastCall("Calculate patch distances");
 
     // Choose the median value of all minimum distances.
     // A robust voting scheme as explaind in the article.
 
-    vector<vector<double>> fragmentDistance(testPatches.size(), vector<double>(trainPatches.size()));
-    for(int i = 0; i < (int)testPatches.size(); i++)
+    vector<vector<double>> fragmentDistance(testFragmentPatches.size(), vector<double>(trainPatches.size()));
+    for(int i = 0; i < (int)testFragmentPatches.size(); i++)
     {
         for(int j = 0; j < (int)trainPatches.size(); j++)
         {
@@ -979,7 +978,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    printTimeSinceLastCall("Normalize Distances");
+    printTimeSinceLastCall("Calculate fregment distances");
 
     // Normalize.
     // We normalize each fragment distace to the rang of 0 -> 1
@@ -1002,7 +1001,8 @@ int main(int argc, char *argv[])
             }
         }
     }
-    vector<vector<double>> normalizedFregmentColorDistance(testPatches.size(), vector<double>(trainPatches.size()));
+
+    vector<vector<double>> normalizedFregmentColorDistance(testFragmentPatches.size(), vector<double>(trainPatches.size()));
 
     for(int i = 0; i < (int)fragmentDistance.size(); i++)
     {
@@ -1014,7 +1014,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    printTimeSinceLastCall("Normalize each fregment distance");
+    printTimeSinceLastCall("Normalize Distances");
 
     // Normalize each fragment distance.
     // After a discussion with Hagit and a test we've made,
@@ -1026,7 +1026,7 @@ int main(int argc, char *argv[])
     // meaning, if a certain distance is 0.1 it makes a big difference if it's normalized
     // globally or locally, patch-wise.
 
-    for(int i = 0; i < (int)testPatches.size(); i++)
+    for(int i = 0; i < (int)testFragmentPatches.size(); i++)
     {
         maxVal = -1;
         minVal = DBL_MAX;
@@ -1050,28 +1050,31 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Mat vizFrag = FragmentToColorDistVisualization(testImage, testLabels, normalizedFregmentColorDistance, 0);
-    // //Mat vizPatch = VisualizePatches(trainImage, trainPatches, 0);
-    // Mat justShowTheLabeles = PaintLabelsTrainImage(trainLabels);
-    // imshow("w", justShowTheLabeles);
-    // imshow("ww", vizFrag);
-    // //imshow("www", vizPatch);
-    // cv::waitKey(0);
+    printTimeSinceLastCall("Normalize each fregment distance");
 
-    // for(int i = 0; i < fragmentDistance.size(); i++)
-    // {
-    //     for(int j = 0; j < trainPatches.size(); j++)
-    //     {
-    //         cout << normalizedFregmentColorDistance[i][j] << " ";
-    //     }
-    //     cout << endl;
-    // }
-    // cout << maxVal << " " << minVal << endl;
+    // TODO: Andrey, look at this visuzlizations - the first one is very informative.
+    UTILITY
+    {
+        for(int i = 0; i< (int)trainPatches.size(); i++)
+        {
+            Mat vizFrag = FragmentToColorDistVisualization(testImage, testLabels, normalizedFregmentColorDistance, i);
+            imshow("ww", vizFrag);
+            cv::waitKey(0);
+        }
+    }
+
+    UTILITY
+    {
+        Mat justShowTheLabeles = PaintLabelsTrainImage(trainLabels);
+        imshow("w", justShowTheLabeles);
+        cv::waitKey(0);
+    }
 
     ////
     // Step 4: we now have the mapping! huryy!!!!
     ////
 
+    // TODO: check if this is neccessery?
     // cvtColor(testImage, testImageLab, CV_Lab2BGR);
 
     Mat avgColoredImage = PaintInAverageColor(testImage, testLabels);
@@ -1098,15 +1101,14 @@ int main(int argc, char *argv[])
             }
         }
 
-        string grabCutString = "Grab Cut " + std::to_string(labelNumber);
-
-        printTimeSinceLastCall(grabCutString.c_str());
-
         Mat background;
         Mat foreground;
         grabCut(avgColoredImage, grabCutMask, Rect(1, 1, 480, 640), background, foreground, 8);
         cv::compare(grabCutMask, cv::GC_PR_FGD, grabCutMask, cv::CMP_EQ);
         // This sets pixels that are equal to 255.
+
+        string grabCutString = "Grab Cut " + std::to_string(labelNumber);
+        printTimeSinceLastCall(grabCutString.c_str());
 
         foregroundImages[labelNumber] = Mat(avgColoredImage.size(), CV_8UC3, Scalar(255,255,255));
         avgColoredImage.copyTo(foregroundImages[labelNumber], grabCutMask);
@@ -1137,16 +1139,9 @@ int main(int argc, char *argv[])
             foregroundImages[labelNumber].col(avgColoredImage.cols / 2).setTo(Vec3b(0,0,255));
             foregroundImages[labelNumber].row(avgColoredImage.rows / 2).setTo(Vec3b(0,0,255));
         }
-
-        // Mat finalVizi = PaintLabelsTrainImage(finalLabeling);
-        // imshow("w", finalVizi);
-        // imshow("ww", grabCutMask);
-        // cv::waitKey(0);
     }
 
     Mat finalLabeling = Mat::zeros(avgColoredImage.size(), CV_8U);
-
-    printTimeSinceLastCall("Final Labeling");
 
     for(int i = 0; i < avgColoredImage.rows; i++)
     {
@@ -1185,16 +1180,16 @@ int main(int argc, char *argv[])
         }
     }
 
+    printTimeSinceLastCall("Final Labeling");
+
     for(int i = 0; i < (int)trainPatches.size(); i++)
     {
-		// Foreground 0
-		// Foreground 1
-
 		string windowName = "Foreground ";
 		windowName += std::to_string(i);
         imshow(windowName, foregroundImages[i]);
     }
 
+    // TODO: make sure this conversion is done.
     //finalLabeling.convertTo(finalLabeling, CV_32S);
     Mat finalViz = PaintLabelsTrainImage(finalLabeling);
     Mat finalVizBoarder = DrawBorderFromLabels(testImage, finalLabeling);
@@ -1208,14 +1203,6 @@ int main(int argc, char *argv[])
     // finalVizBoarder = DrawBorderFromLabels(testImage, finalLabeling);
     // imshow("www", finalVizBoarder);
 
-    // imshow("ww", trainImage);
-    // imshow("www", testImage);
-
-    // imshow("w", trainLabels);
-
-    //imshow("w", vizTrainPatch);
-    //imshow("ww", trainImage);
-    //imshow("www", avgColoredImage);
     while(cv::waitKey(0) != 'q')
     { }
 

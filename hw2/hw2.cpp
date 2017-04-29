@@ -107,8 +107,11 @@ int main()
 {
     Mat image = imread("../fam.jpg");
 
+    //https://github.com/mesutpiskin/OpenCvObjectDetection/tree/master/haarcascades
+
     cv::CascadeClassifier facesDetector("../haarcascade_frontalface_default.xml");
     cv::CascadeClassifier eyesDetector("../haarcascade_eye_tree_eyeglasses.xml");
+    cv::CascadeClassifier mouthDetector("../haarcascade_eye_tree_eyeglasses.xml");
 
     vector<Rect>    faces,
                     eyes;
@@ -139,9 +142,55 @@ int main()
         }
     }
 
-   
+    vector<vector<Rect>> eyesConverted = convertEyesToFaceSpace(faces, eyesAssigned);
+
+    Mat tryFace = actualFaces[0].clone();
+    vector<Rect> faceEye;
+    eyesDetector.detectMultiScale(tryFace, faceEye, 1.1, 10, 0);
+
+    vector<Point2f> desiredPoints = {Point2f(50, 60), Point2f(75, 80), Point2f(100, 60)};
+    vector<Point2f> actualPoints = {returnCenterOfRect(faceEye[0]),
+                                    Point2f( (faceEye[0].x + faceEye[0].width / 2 + faceEye[1].x + faceEye[1].width / 2) / 2,
+                                    (faceEye[0].y + faceEye[0].height / 2 + faceEye[1].y + faceEye[1].height / 2) / 2 + 20) ,
+                                    returnCenterOfRect(faceEye[1])};
+                                    
+    Mat tryFacedrawing = drawObjectsWithTitles(tryFace, faceEye, "Eye");
+    imshow("w", tryFacedrawing);
+    waitKey(0);
+    
+    for(int i = 0; i < desiredPoints.size(); i++)
+    {
+        circle(tryFace, desiredPoints[i], 2, Scalar(0, 0, 255));
+        circle(tryFace, actualPoints[i], 2, Scalar(0, 255, 0));
+    }
+
+    cv::rectangle(tryFace, faceEye[0], Scalar(255, 0, 0));
+    cv::rectangle(tryFace, faceEye[1], Scalar(255, 0, 0));
+    
+    imshow("w", tryFace);
+    waitKey(0);
+
+    for(int i = 0; i < faces.size(); i++)
+    {
+        if(eyesAssigned[i].size() > 0)
+        {
+            drawing = drawObjectsWithTitles(drawing, eyesAssigned[i], "Eye " + to_string(i) );
+            Rect eye = eyesAssigned[i][0];
+            circle(drawing, Point(eye.x + eye.width / 2, eye.y + eye.height / 2), 1, Scalar(0, 0, 255));
+        }
+    }
+
+    Mat affineTrans = getAffineTransform(desiredPoints, actualPoints);
+    // Mat affineTrans = getAffineTransform(actualPoints, desiredPoints);
+
+    cout << affineTrans << endl;
+    
+    Mat transformedFace;
+
+    warpAffine(actualFaces[0], transformedFace, affineTrans, actualFaces[0].size());
+
     cv::imshow("w", drawing);
-    // cv::imshow("ww", transformedFace);
+    cv::imshow("ww", transformedFace);
     cv::waitKey(0);
 
     return 0;

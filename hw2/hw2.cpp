@@ -107,20 +107,23 @@ int main()
 {
     Mat image = imread("../fam.jpg");
 
-    //https://github.com/mesutpiskin/OpenCvObjectDetection/tree/master/haarcascades
+    // https://github.com/mesutpiskin/OpenCvObjectDetection/tree/master/haarcascades
 
     cv::CascadeClassifier facesDetector("../haarcascade_frontalface_default.xml");
     cv::CascadeClassifier eyesDetector("../haarcascade_eye_tree_eyeglasses.xml");
-    cv::CascadeClassifier mouthDetector("../haarcascade_eye_tree_eyeglasses.xml");
+    cv::CascadeClassifier mouthDetector("../haarcascade_mcs_mouth.xml");
 
     vector<Rect>    faces,
-                    eyes;
+                    eyes,
+                    mouth;
 
     facesDetector.detectMultiScale(image, faces, 1.1, 15, 0, Size(80, 80));
     eyesDetector.detectMultiScale(image, eyes, 1.1, 10, 0);
+    mouthDetector.detectMultiScale(image, mouth, 1.2, 25, 0);
 
     Mat drawing = drawObjectsWithTitles(image, faces, "Face");
-    //drawing = drawObjectsWithTitles(drawing, eyes, "Eye");
+    drawing = drawObjectsWithTitles(drawing, mouth, "Mouth");
+    drawing = drawObjectsWithTitles(drawing, eyes, "Eye");
 
     vector<Mat> actualFaces = resizeAndReturnFaces(image, faces, 150);
 
@@ -144,19 +147,29 @@ int main()
 
     vector<vector<Rect>> eyesConverted = convertEyesToFaceSpace(faces, eyesAssigned);
 
-    Mat tryFace = actualFaces[0].clone();
-    vector<Rect> faceEye;
+    int tryFaceNum = 0;
+
+    Mat tryFace = actualFaces[tryFaceNum].clone();
+    vector<Rect> faceEye, faceMouth;
     eyesDetector.detectMultiScale(tryFace, faceEye, 1.1, 10, 0);
+    mouthDetector.detectMultiScale(tryFace, faceMouth, 1.1, 15, 0);
 
     vector<Point2f> desiredPoints = {Point2f(50, 60), Point2f(75, 80), Point2f(100, 60)};
     vector<Point2f> actualPoints = {returnCenterOfRect(faceEye[0]),
                                     Point2f( (faceEye[0].x + faceEye[0].width / 2 + faceEye[1].x + faceEye[1].width / 2) / 2,
                                     (faceEye[0].y + faceEye[0].height / 2 + faceEye[1].y + faceEye[1].height / 2) / 2 + 20) ,
                                     returnCenterOfRect(faceEye[1])};
-                                    
+
     Mat tryFacedrawing = drawObjectsWithTitles(tryFace, faceEye, "Eye");
+    tryFacedrawing = drawObjectsWithTitles(tryFacedrawing, faceMouth, "Mouth");
+    
     imshow("w", tryFacedrawing);
     waitKey(0);
+
+    desiredPoints = {Point2f(50, 60), Point2f(75, 120), Point2f(100, 60)};
+    actualPoints = {returnCenterOfRect(faceEye[0]),
+                    returnCenterOfRect(faceMouth[0]),
+                    returnCenterOfRect(faceEye[1])};
     
     for(int i = 0; i < desiredPoints.size(); i++)
     {
@@ -187,10 +200,12 @@ int main()
     
     Mat transformedFace;
 
-    warpAffine(actualFaces[0], transformedFace, affineTrans, actualFaces[0].size());
+    warpAffine(actualFaces[tryFaceNum], transformedFace, affineTrans, actualFaces[0].size());
 
-    cv::imshow("w", drawing);
+    cv::imshow("www", drawing);
     cv::imshow("ww", transformedFace);
+    cv::imshow("w", actualFaces[tryFaceNum]);
+    
     cv::waitKey(0);
 
     return 0;

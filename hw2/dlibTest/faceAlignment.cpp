@@ -87,56 +87,6 @@ int listDirectory(const char* path, vector<string> &files)
 #endif
 }
 
-// bool readDataset(const string &datasetPath, vector<Mat> &images, vector<int> &labels, vector<string> &labelNames)
-// {
-// 	vector<string> directories;
-
-// 	if (listDirectory(datasetPath.c_str(), directories) != 0) {
-// 		return false;
-// 	}
-
-// 	std::sort(directories.begin(), directories.end());
-
-// 	int currentLabel = 0;
-// 	images.resize(0);
-// 	labels.resize(0);
-// 	labelNames.resize(0);
-
-// 	for (const string &dir : directories) {
-// 		if (dir == "." || dir == "..")
-// 			continue;
-
-// 		string directoryPath = datasetPath + "/" + dir;
-
-// 		vector<string> imageNames;
-// 		if (listDirectory(directoryPath.c_str(), imageNames) != 0)
-// 			continue;
-
-// 		for (const string &imageFile : imageNames) {
-// 			if (imageFile == "." || imageFile == "..")
-// 				continue;
-
-// 			string filePath = directoryPath + "/" + imageFile;
-// 			Mat image = cv::imread(filePath);
-
-// 			if (!image.empty()) {
-// 				images.push_back(image);
-// 				labels.push_back(currentLabel);
-
-// 				std::cout << "loaded '" << filePath << "'" << std::endl;
-// 			}
-// 			else {
-// 				std::cout << "ERROR: Couldn't load image '" << filePath << "'" << std::endl;
-// 			}
-// 		}
-
-// 		currentLabel++;
-// 		labelNames.push_back(dir);
-// 	}
-
-// 	return true;
-// }
-
 bool readDataset(const string &datasetPath, vector<Mat> &images, vector<int> &labels, vector<string> &labelNames)
 {
     vector<string> directories;
@@ -249,7 +199,7 @@ vector<Point2f> convertDlibShapeToOpenCV(dlib::full_object_detection objectDet, 
     for(int i = 0; i < 68; i++)
     {
         dlib::point p = objectDet.part(i);
-        Point2f cvPoint{p(0), p(1)};
+        Point2f cvPoint{ (float)p.x(), (float)p.y() };
         cvParts.push_back(cvPoint);
     }
     
@@ -366,6 +316,8 @@ vector<Mat> alignImageFaces(Mat image, dlib::frontal_face_detector detector, dli
     {
         cout << e.what() << endl;
     }
+
+    return vector<Mat>();
 }
 
 int main()
@@ -375,7 +327,7 @@ int main()
     int i = 0;
     int notDetected = 0;
 
-    if (!readDataset("../dataset1", AllFaces)) {
+    if (!readDataset("../test_images_hw2", AllFaces)) {
 		std::cout << "ERROR: Clouldn't load dataset" << std::endl;
 	}
 
@@ -392,10 +344,18 @@ int main()
         vector<Mat> currentFaces = alignImageFaces(image, detector, pose_model);
         printTimeSinceLastCall("End Align call");
         for(Mat im : currentFaces)
+        {
             faces.push_back( im );
+            // imshow("w", image);
+            // waitKey(0);
+        }
 
         if(currentFaces.size() == 0)
+        {
             notDetected++;
+            // imshow("ww", image);
+            // waitKey(0);
+        }
         
         printTimeSinceLastCall("Push Back");
             
@@ -412,8 +372,8 @@ int main()
     for(Mat face : faces)
     {
         imshow("w", face);
-        string fileName = std::to_string(i++) + ".png";
-		cv::imwrite(fileName, face);
+        // string fileדName = std::to_string(i++) + ".png";
+		// cv::imwrite(fileName, face);
         waitKey(0);
     }
 
